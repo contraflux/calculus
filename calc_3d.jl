@@ -88,7 +88,8 @@ function surface_integral(F, x, y, z, ti, tf, si, sf)
     ∂t(t, s) = [partial_x(x, t, s), partial_x(y, t, s), partial_x(z, t, s)]
     ∂s(t, s) = [partial_y(x, t, s), partial_y(y, t, s), partial_y(y, t, s)]
     dA(t, s) = LinearAlgebra.cross(∂t(t, s), ∂s(t, s))
-    h(t, s) = LinearAlgebra.dot(F(x(t, s), y(t, s), z(t, s)), dA(t, s))
+    f(t, s) = F(x(t, s), y(t, s), z(t, s))
+    h(t, s) = LinearAlgebra.dot(f(t, s), dA(t, s))
     return double_integral(h, ti, tf, si, sf)
 end
 
@@ -119,10 +120,20 @@ function curl(F, x, y, z)
     return [i, -j, k]
 end
 
-# TODO: Test this, for some reason I keep getting 4.189 when it should be 4π
-# x(t, s) = cos(t) * sqrt(1 - s^2)
-# y(t, s) = sin(t) * sqrt(1 - s^2)
-# z(t, s) = s
+function laplacian(f, x, y, z)
+    """ Evaluate the Laplacian of f at (x, y, z) 
+    Parameters: F:R³ -> R, (x, y, z) ∈ R³
+    Returns: ∇²f
+    """
+    return divergence((u, v, w) -> gradient(f, u, v, w), x, y, z)
+end
 
-# F(x, y, z) = [x, y, z]
-# surface_integral(F, x, y, z, -π, π, -1, 1)
+function vector_laplacian(F, x, y, z)
+    """ Evaluate the vector Laplacian of F at (x, y, z) 
+    Parameters: F:R³ -> R³, (x, y, z) ∈ R³
+    Returns: ∇²F
+    """
+    g(x, y, z) = gradient((u, v, w) -> divergence(F, u, v, w), x, y, z)
+    h(x, y, z) = curl((u, v, w) -> curl(F, u, v, w), x, y, z)
+    return g(x, y, z) - h(x, y, z)
+end

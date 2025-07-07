@@ -3,17 +3,17 @@ using GLMakie
 include("utils.jl")
 include("../calc_3d.jl")
 
-x_bounds = [-10, 10]
-y_bounds = [-10, 10]
+x_bounds = [-5, 5]
+y_bounds = [-5, 5]
 z_bounds = [-10, 10]
-density = 10
+density = 30
 
 xs = collect(LinRange(x_bounds..., density))
 ys = collect(LinRange(y_bounds..., density))
 zs = collect(LinRange(z_bounds..., density))
 
 fig = Figure(size=(700, 700))
-set_theme!(merge(theme_black(), theme_latexfonts()))
+set_theme!(merge(theme_light(), theme_latexfonts()))
 
 function vector_field_2d(F, show_div, show_curl)
     ax = Axis(fig[1, 1], limits=(x_bounds..., y_bounds...))
@@ -36,15 +36,15 @@ function vector_field_2d(F, show_div, show_curl)
         heatmap!(ax, xs, ys, curlF, colormap=:seaborn_icefire_gradient, interpolate=:true, colorrange=(-heatmap_range, heatmap_range), alpha=0.5)
     end
 
-    arrows!(ax, xs, ys, us_norm, vs_norm, color=vec(colors), arrowsize=5, lengthscale=0.4)
+    arrows!(ax, xs, ys, us_norm, vs_norm, color=vec(colors), arrowsize=5, lengthscale=0.2)
 
     on(events(fig).mousebutton) do event
         if event.action == Mouse.press
-            println(events(ax).mouseposition)
-            x_pts = [map_value(events(ax).mouseposition[][1], 50, 684, x_bounds...)]
-            y_pts = [map_value(events(ax).mouseposition[][2], 37, 682, y_bounds...)]
+            # println(events(ax).mouseposition)
+            x_pts = [map_value(events(ax).mouseposition[][1], 38, 683, x_bounds...)]
+            y_pts = [map_value(events(ax).mouseposition[][2], 30, 685, y_bounds...)]
             euler_method_2d(F, 0.01, 10, x_pts, y_pts)
-            lines!(ax, x_pts, y_pts, color=:white)
+            lines!(ax, x_pts, y_pts, color=:black)
         end
     end
 
@@ -81,14 +81,11 @@ function vector_field_3d(F, show_curl)
     display(fig)
 end
 
-vector_field_3d((x,y,z) -> [sin(y), sin(x), sin(x*y)], false)
+c1 = 1
+c2 = c1^2 / 4
+ẋ(x, y) = c1*x - c2*y
+ẏ(x, y) = x
 
-""" 
-Examples 
+A = [c1 -c2; 1 0]
 
-Varying divergence:
-vector_field_2d((x,y) -> [sin(x), sin(y)], true, false)
-
-Varying curl:
-vector_field_2d((x,y) -> [sin(y), sin(x)], false, true)
-"""
+vector_field_2d((x, y) -> [ẋ(x, y), ẏ(x, y)], false, false)

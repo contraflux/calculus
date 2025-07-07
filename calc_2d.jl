@@ -96,3 +96,11 @@ function curl(F, x, y)
     """
     return partial_y(F, x, y)[1] - partial_x(F, x, y)[2]
 end
+
+function laplacian(f, x, y)
+    """ Evaluate the Laplacian of f at (x, y, z) 
+    Parameters: F:R² -> R, (x, y) ∈ R²
+    Returns: ∇²f
+    """
+    return divergence((u, v) -> gradient(f, u, v), x, y)
+end
