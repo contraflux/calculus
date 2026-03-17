@@ -6,10 +6,11 @@ including the tensor product and contraction.
 
 # Types
 Tensor{T, N} - General (m, n) tensor of objects with type T
+KroneckerDelta - The Kronecker Delta δ
 
 # Functions
 Tensor - Wrapper for Tensor{T, N}, takes nested vectors (contravariant indices) and adjoints (covariant indices)
-getindex - Allows indexing independently through contra and covariant indices
+getindex - Allows indexing independently through contra and covariant indices, and taking the trace
 ⊗ - Tensor product
 * - Tensor contraction
 
@@ -97,6 +98,13 @@ end
 struct PartialIndexedTensor{T, R, M}
     tensor::Tensor{T, R}
     contravariant::NTuple{M, Symbol}
+end
+
+struct KroneckerDelta
+end
+
+struct IndexedKroneckerDelta
+    indices::NTuple{2, Symbol}
 end
 
 """
@@ -217,9 +225,41 @@ end
 
 """
 Internal. Completes the covariant half of two-bracket symbolic indexing on a Tensor, returning a fully labeled IndexedTensor.
+
+If any index appears as both contravariant and covariant, contract over that index.
 """
 function Base.getindex(A::PartialIndexedTensor, indices...)
-    return IndexedTensor(A.tensor, A.contravariant, indices)
+    duplicates = intersect(A.contravariant, indices)
+    if isempty(duplicates)
+        return IndexedTensor(A.tensor, A.contravariant, indices)
+    end
+    pairs = []
+    B_covariant = collect(indices)
+    for i in eachindex(duplicates)
+        index = duplicates[i]
+        dummy_index = Symbol("dummy_$i")
+        co_index = findfirst(x -> x == index, indices)
+        B_covariant[co_index] = dummy_index
+        push!(pairs, (index, dummy_index))
+    end
+    B = IndexedTensor(A.tensor, A.contravariant, Tuple(B_covariant))
+    δ = KroneckerDelta()
+    for (index, dummy_index) in pairs
+        B = B * δ[index, dummy_index]
+    end
+    return B
+end
+
+function Base.getindex(δ::KroneckerDelta, indices...)
+    if all(isa.(indices, Symbol))
+        return IndexedKroneckerDelta((indices[1], indices[2]))
+    else
+        if indices[1] == indices[2]
+            return 1
+        else
+            return 0
+        end
+    end
 end
 
 """
@@ -273,7 +313,7 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
     if !isempty(intersect(A.contravariant, B.contravariant))
         error("Repeated contravariant indices")
     elseif !isempty(intersect(A.covariant, B.covariant))
-        throw("Repeated covariant indices")
+        error("Repeated covariant indices")
     end
     # Find pairs of matching contravariant and covariant indices across A and B
     pairs = find_pairs(A, B)
@@ -361,6 +401,26 @@ function Base.:*(s::Number, A::IndexedTensor)
     return A * s
 end
 
+function Base.:*(A::IndexedTensor, δ::IndexedKroneckerDelta)
+    pairs = find_pairs(A, δ)
+    if isempty(pairs)
+        error("Delta has no common indices")
+    end
+    (index, symbol, variance) = pairs[1]
+    dim = size(A.tensor.data, index)
+    δTensor = Tensor(Matrix(I, dim, dim), (:contra, :co))
+    if symbol == δ.indices[1]
+        δIndexedTensor = variance == :co ? δTensor[symbol][δ.indices[2]] : δTensor[δ.indices[2]][symbol]
+    else
+        δIndexedTensor = variance == :co ? δTensor[symbol][δ.indices[1]] : δTensor[δ.indices[1]][symbol]
+    end
+    return A * δIndexedTensor
+end
+
+function Base.:*(δ::IndexedKroneckerDelta, A::IndexedTensor)
+    return A * δ
+end
+
 function find_index(target, A, variance)
     space = variance == :contra ? A.contravariant : A.covariant
     contra_index = findfirst(x -> x == target, space)
@@ -368,7 +428,7 @@ function find_index(target, A, variance)
     return index
 end
 
-function find_pairs(A, B)
+function find_pairs(A::IndexedTensor, B::IndexedTensor)
     pairs = []
     for index in intersect(A.contravariant, B.covariant)
         A_index = find_index(index, A, :contra)
@@ -379,6 +439,19 @@ function find_pairs(A, B)
         A_index = find_index(index, A, :co)
         B_index = find_index(index, B, :contra)
         push!(pairs, (A_index, B_index))
+    end
+    return pairs
+end
+
+function find_pairs(A::IndexedTensor, δ::IndexedKroneckerDelta)
+    pairs = []
+    for index in intersect(A.contravariant, δ.indices)
+        A_index = find_index(index, A, :contra)
+        push!(pairs, (A_index, index, :contra))
+    end
+    for index in intersect(A.covariant, δ.indices)
+        A_index = find_index(index, A, :co)
+        push!(pairs, (A_index, index, :co))
     end
     return pairs
 end
