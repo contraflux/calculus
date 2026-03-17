@@ -1,5 +1,5 @@
 """
-tensors.jl
+TensorAlgebra.jl
 
 This Julia package allows for general operations with tensors,
 including the tensor product and contraction.
@@ -275,11 +275,14 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
     elseif !isempty(intersect(A.covariant, B.covariant))
         throw("Repeated covariant indices")
     end
+    # Find pairs of matching contravariant and covariant indices across A and B
     pairs = find_pairs(A, B)
+    # Find the free indicies (those without pairs)
+    all_indices = union(A.contravariant, A.covariant, B.contravariant, B.covariant)
     contra_contractions = intersect(A.contravariant, B.covariant)
     co_contractions = intersect(A.covariant, B.contravariant)
-    all_indices = union(A.contravariant, A.covariant, B.contravariant, B.covariant)
     free_indices = setdiff(all_indices, union(contra_contractions, co_contractions))
+
     ranges = []
     for (a_idx, b_idx) in pairs
         if size(A.tensor.data, a_idx) != size(B.tensor.data, b_idx)
@@ -287,46 +290,55 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
         end
         push!(ranges, 1:size(A.tensor.data, a_idx))
     end
-    indices = Iterators.product(ranges...)
-    free_dimensions = []
-    free_variances = []
+    free_indices_info = []
     for free_index in free_indices
         if (free_index in A.contravariant)
             A_index = find_index(free_index, A, :contra)
-            push!(free_dimensions, size(A.tensor.data, A_index))
-            push!(free_variances, :contra)
+            info = (tensor=:A, index=A_index, dimension=size(A.tensor.data, A_index), variance=:contra)
+            push!(free_indices_info, info)
         elseif (free_index in A.covariant)
             A_index = find_index(free_index, A, :co)
-            push!(free_dimensions, size(A.tensor.data, A_index))
-            push!(free_variances, :co)
+            info = (tensor=:A, index=A_index, dimension=size(A.tensor.data, A_index), variance=:co)
+            push!(free_indices_info, info)
         elseif (free_index in B.contravariant)
             B_index = find_index(free_index, B, :contra)
-            push!(free_dimensions, size(B.tensor.data, B_index))
-            push!(free_variances, :contra)
+            info = (tensor=:B, index=B_index, dimension=size(B.tensor.data, B_index), variance=:contra)
+            push!(free_indices_info, info)
         else
             B_index = find_index(free_index, B, :co)
-            push!(free_dimensions, size(B.tensor.data, B_index))
-            push!(free_variances, :co)
+            info = (tensor=:B, index=B_index, dimension=size(B.tensor.data, B_index), variance=:co)
+            push!(free_indices_info, info)
         end
     end
-    result = zeros(free_dimensions...)
-    for index in indices
-        A_idx = Any[Colon() for _ in 1:ndims(A.tensor.data)]
-        B_idx = Any[Colon() for _ in 1:ndims(B.tensor.data)]
-        for (value, location) in zip(index, pairs)
-            A_idx[location[1]] = value
-            B_idx[location[2]] = value
+
+    free_ranges = [1:info.dimension for info in free_indices_info]
+    result = zeros(eltype(A.tensor.data), [info.dimension for info in free_indices_info]...)
+    for free_index in Iterators.product(free_ranges...)
+        for index in Iterators.product(ranges...)
+            A_idx = Any[0 for _ in 1:ndims(A.tensor.data)]
+            B_idx = Any[0 for _ in 1:ndims(B.tensor.data)]
+            for (value, info) in zip(free_index, free_indices_info)
+                if info.tensor == :A
+                    A_idx[info.index] = value
+                else
+                    B_idx[info.index] = value
+                end
+            end
+            for (value, location) in zip(index, pairs)
+                A_idx[location[1]] = value
+                B_idx[location[2]] = value
+            end
+            result[free_index...] += A.tensor.data[A_idx...] .* B.tensor.data[B_idx...]
         end
-        result .+= A.tensor.data[A_idx...] .* B.tensor.data[B_idx...]
     end
 
     leftover_contra_indices = []
     leftover_co_indices = []
-    for index in zip(free_indices, free_variances)
-        if index[2] == :contra
-            push!(leftover_contra_indices, index[1])
+    for (index, info) in zip(free_indices, free_indices_info)
+        if info.variance == :contra
+            push!(leftover_contra_indices, index)
         else
-            push!(leftover_co_indices, index[1])
+            push!(leftover_co_indices, index)
         end
     end
     # If all indices are free, return the scalar product
@@ -334,10 +346,10 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
         return IndexedTensor(A.tensor ⊗ B.tensor, Tuple(leftover_contra_indices), Tuple(leftover_co_indices))
     end
     # If it's a scalar, return as a scalar
-    if isempty(free_variances)
+    if isempty(free_indices)
         return result[]
     end
-    return IndexedTensor(Tensor(result, Tuple(free_variances)), Tuple(leftover_contra_indices), Tuple(leftover_co_indices))
+    return IndexedTensor(Tensor(result, Tuple([info.variance for info in free_indices_info])), Tuple(leftover_contra_indices), Tuple(leftover_co_indices))
 end
 
 function Base.:*(A::IndexedTensor, s::Number)
@@ -386,8 +398,18 @@ function findindex(desired_index, variance, key)
     return var_index
 end
 
-v = Tensor([1, 2])
-w = Tensor([3, -1]')
-L = v ⊗ w
-
-w[:i] * L[:i][:j] * 5 * v[:j]
+"""
+Computes the inverse of a (2, 0) or (0, 2) tensor (the metric or inverse metric)
+"""
+function LinearAlgebra.inv(A::Tensor)
+    if length(A.variance) != 2
+        error("Must be a rank 2 tensor")
+    elseif A.variance[1] != A.variance[2]
+        error("Must either a (2, 0) or (0, 2) tensor")
+    end
+    if A.variance[1] == :co
+        return Tensor(inv(A.data), (:contra, :contra))
+    else
+        return Tensor(inv(A.data), (:co, :co))
+    end
+end
