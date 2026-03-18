@@ -34,6 +34,7 @@ contraflux
 """
 
 using LinearAlgebra
+using Symbolics
 
 """
 General (m, n) tensor of objects with type T
@@ -151,6 +152,101 @@ IndexedLeviCivita{3}((:i, :j, :k))
 """
 struct IndexedLeviCivita{N}
     indices::NTuple{N, Symbol}
+end
+
+"""
+The Partial Derivative Operator ∂
+
+# Fields
+coordinates::NTuple{N, Num}
+    - The coordinates to differentiate with respect to
+
+# Examples
+```
+julia> @variables u v
+2-element Vector{Num}:
+ u
+ v
+julia> ∂ = PartialDerivative((u, v))
+PartialDerivative{2}((u, v))
+```
+"""
+struct PartialDerivative{N}
+    coordinates::NTuple{N, Num}
+end
+
+"""
+The Indexed Partial Derivative Operator
+
+# Fields
+partial::PartialDerivative
+    - The underlying partial Derivative
+index::Symbol
+    - The index of the coordinate
+
+# Examples
+```
+julia> ∂ = PartialDerivative((u, v))
+PartialDerivative{2}((u, v))
+julia> ∂[:i]
+IndexedPartialDerivative(PartialDerivative{2}((u, v)), :i)
+```
+"""
+struct IndexedPartialDerivative
+    partial::PartialDerivative
+    index::Symbol
+end
+
+"""
+The Covariant Derivative Operator ∇
+
+# Fields
+connection::Tensor
+    - A (1, 2) tensor containing the connection coefficients
+partial::PartialDerivative
+    - The partial differention operator
+
+# Examples
+```
+julia> @variables u v
+2-element Vector{Num}:
+ u
+ v
+julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
+(Tensor{Int64, 1}([1, 0], (:contra,)), Tensor{Int64, 1}([0, 1], (:contra,)))
+julia> Γ = christoffel((u, v), basis)
+IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), (:l,), (:j, :k))
+julia> ∂ = PartialDerivative((u, v))
+PartialDerivative{2}((u, v))
+julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
+CovariantDerivative(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), PartialDerivative{2}((u, v)))
+```
+"""
+struct CovariantDerivative
+    connection::Tensor
+    partial::PartialDerivative
+end
+
+"""
+The Indexed Covariant Derivative Operator
+
+# Fields
+covariant::CovariantDerivative
+    - The underlying covariant derivative
+index::Symbol
+    - The index of the coordinate
+
+# Examples
+```
+julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
+CovariantDerivative(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), PartialDerivative{2}((u, v)))
+julia> ∇[:k]
+IndexedCovariantDerivative(CovariantDerivative(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), PartialDerivative{2}((u, v))), :k)
+```
+"""
+struct IndexedCovariantDerivative
+    covariant::CovariantDerivative
+    index::Symbol
 end
 
 """
@@ -279,12 +375,16 @@ function Base.getindex(A::PartialIndexedTensor, indices...)
     if isempty(duplicates)
         return IndexedTensor(A.tensor, A.contravariant, indices)
     end
+    return self_contract(IndexedTensor(A.tensor, A.contravariant, indices), duplicates)
+end
+
+function self_contract(A::IndexedTensor, duplicates)
     pairs = []
-    B_covariant = collect(indices)
+    B_covariant = collect(A.covariant)
     for i in eachindex(duplicates)
         index = duplicates[i]
         dummy_index = Symbol("dummy_$i")
-        co_index = findfirst(x -> x == index, indices)
+        co_index = findfirst(x -> x == index, A.covariant)
         B_covariant[co_index] = dummy_index
         push!(pairs, (index, dummy_index))
     end
@@ -366,6 +466,38 @@ function Base.getindex(ε::LeviCivita, indices...)
 end
 
 """
+Index a Partial Derivative Operator with symbolic indices.
+
+Returns an IndexedPartialDerivative for use in Einstein summation via *.
+
+# Arguments
+∂::PartialDerivative
+    - The Partial Derivative Operator to index
+
+indices...
+    - The symbolic index
+"""
+function Base.getindex(∂::PartialDerivative, indices...)
+    return IndexedPartialDerivative(∂, indices[1])
+end
+
+"""
+Index a Covariant Derivative Operator with symbolic indices.
+
+Returns an IndexedCovariantDerivative for use in Einstein summation via *.
+
+# Arguments
+∇::CovariantDerivative
+    - The Covariant Derivative Operator to index
+
+indices...
+    - The symbolic index
+"""
+function Base.getindex(∇::CovariantDerivative, indices...)
+    return IndexedCovariantDerivative(∇, indices[1])
+end
+
+"""
 Computes the tensor product of two tensors
 
 Given an (m, n) tensor A and a (p, q) tensor B, returns an (m + p, n + q) tensor
@@ -391,6 +523,63 @@ function ⊗(A::Tensor, B::Tensor)
     b = B.data
     data = [a[i] * b[j] for j in eachindex(b) for i in eachindex(a)]
     return Tensor(reshape(data, size(a)..., size(b)...), (A.variance..., B.variance...))
+end
+
+"""
+Computes the sum of two tensors
+
+Given an (m, n) tensor A and a (m, n) tensor B, returns an (m, n) tensor
+
+# Examples
+```
+julia> A = Tensor([[1, 2]', [3, -1]'])
+Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
+julia> B = Tensor([[5, -2]', [1, 1]'])
+Tensor{Int64, 2}([5 -2; 1 1], (:contra, :co))
+julia> A[:i][:j] + B[:i][:j]
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([6 0; 4 0], (:contra, :co)), (:i,), (:j,))
+```
+"""
+function Base.:+(A::IndexedTensor, B::IndexedTensor)
+    if Set(A.contravariant) != Set(B.contravariant)
+        error("Contravariant indices must match")
+    elseif Set(A.covariant) != Set(B.covariant)
+        error("Covariant indices must match")
+    end
+    permutation_map = zeros(length(A.contravariant) + length(A.covariant))
+    for A_index in eachindex(A.contravariant)
+        B_index = findfirst(x -> x == A.contravariant[A_index], B.contravariant)
+        A_idx = findindex(A_index, A.tensor.variance, :contra)
+        B_idx = findindex(B_index, B.tensor.variance, :contra)
+        permutation_map[A_idx] = B_idx
+    end
+    for A_index in eachindex(A.covariant)
+        B_index = findfirst(x -> x == A.covariant[A_index], B.covariant)
+        A_idx = findindex(A_index, A.tensor.variance, :co)
+        B_idx = findindex(B_index, B.tensor.variance, :co)
+        permutation_map[A_idx] = B_idx
+    end
+    C = permutedims(B.tensor.data, Tuple(Int.(permutation_map)))
+    return IndexedTensor(Tensor(A.tensor.data .+ C, A.tensor.variance), A.contravariant, A.covariant)
+end
+
+"""
+Computes the difference of two tensors
+
+Given an (m, n) tensor A and a (m, n) tensor B, returns an (m, n) tensor
+
+# Examples
+```
+julia> A = Tensor([[1, 2]', [3, -1]'])
+Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
+julia> B = Tensor([[5, -2]', [1, 1]'])
+Tensor{Int64, 2}([5 -2; 1 1], (:contra, :co))
+julia> A[:i][:j] - B[:i][:j]
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([-4 4; 2 -2], (:contra, :co)), (:i,), (:j,))
+```
+"""
+function Base.:-(A::IndexedTensor, B::IndexedTensor)
+    return A + (-1 * B)
 end
 
 """
@@ -495,6 +684,17 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
     return IndexedTensor(Tensor(result, Tuple([info.variance for info in free_indices_info])), Tuple(leftover_contra_indices), Tuple(leftover_co_indices))
 end
 
+"""
+Computes tensor scaling
+
+# Examples
+```
+julia> A = Tensor([[1, 2]', [3, -1]'])
+Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
+julia> 2 * A[:i][:j]
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([2 4; 6 -2], (:contra, :co)), (:i,), (:j,))
+```
+"""
 function Base.:*(A::IndexedTensor, s::Number)
     scaled = A.tensor.data .* s
     return IndexedTensor(Tensor(scaled, A.tensor.variance), A.contravariant, A.covariant)
@@ -504,6 +704,21 @@ function Base.:*(s::Number, A::IndexedTensor)
     return A * s
 end
 
+"""
+Computes the contraction of a tensor and the Kronecker Delta
+
+# Examples
+```
+julia> A = Tensor([[1, 2]', [3, -1]'])
+Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
+julia> δ = KroneckerDelta()
+KroneckerDelta()
+julia> A[:i][:j] * δ[:j, :k]
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co)), (:i,), (:k,))
+julia> A[:i][:j] * δ[:j, :i]
+0
+```
+"""
 function Base.:*(A::IndexedTensor, δ::IndexedKroneckerDelta)
     pairs = find_pairs(A, δ)
     if isempty(pairs)
@@ -524,6 +739,19 @@ function Base.:*(δ::IndexedKroneckerDelta, A::IndexedTensor)
     return A * δ
 end
 
+"""
+Computes the contraction of a tensor and the Levi-Civita Symbol
+
+# Examples
+```
+julia> v = Tensor([1, 2]); u = Tensor([-2, 1])
+Tensor{Int64, 1}([-2, 1], (:contra,))
+julia> ε = LeviCivita()
+LeviCivita()
+julia> v[:i] * u[:j] * ε[:i, :j]
+5
+```
+"""
 function Base.:*(A::IndexedTensor, ε::IndexedLeviCivita)
     pairs = find_pairs(A, ε)
     if isempty(pairs)
@@ -552,6 +780,87 @@ end
 
 function Base.:*(ε::IndexedLeviCivita, A::IndexedTensor)
     return A * ε
+end
+
+"""
+Applies a partial derivative to a tensor
+
+# Examples
+```
+julia> @variables u v
+2-element Vector{Num}:
+ u
+ v
+julia> A = Tensor([[u, 2v]', [3u, v^2]'])
+Tensor{Num, 2}(Num[u 2v; 3u v^2], (:contra, :co))
+julia> ∂ = PartialDerivative((u, v))
+PartialDerivative{2}((u, v))
+julia> ∂[:k] * A[:i][:j]
+IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[1 0; 3 0;;; 0 2; 0 2v], (:contra, :co, :co)), (:i,), (:j, :k))
+julia> ∂[:k] * A[:k][:j]
+IndexedTensor{Num, 1, 0, 1}(Tensor{Num, 1}(Num[1, 2v], (:co,)), (), (:j,))
+```
+"""
+function Base.:*(∂::IndexedPartialDerivative, A::IndexedTensor)
+    Bs = []
+    for coordinate in ∂.partial.coordinates
+        push!(Bs, map(a -> expand_derivatives(Differential(coordinate)(a)), A.tensor.data))
+    end
+    B = stack(Bs)
+    C = IndexedTensor(Tensor(B, (A.tensor.variance..., :co)), A.contravariant, (A.covariant..., ∂.index))
+    duplicates = union(intersect(A.contravariant, [∂.index]), intersect(A.covariant, [∂.index]))
+    if isempty(duplicates)
+        return C
+    end
+    return self_contract(C, duplicates)
+end
+
+"""
+Applies a covariant derivative derivative to a tensor
+
+# Examples
+```
+julia> @variables u v
+2-element Vector{Num}:
+ u
+ v
+julia> basis = (Tensor([u, 0]), Tensor([0, v]))
+(Tensor{Num, 1}(Num[u, 0], (:contra,)), Tensor{Num, 1}(Num[0, v], (:contra,)))
+julia> ∂ = PartialDerivative((u, v))
+PartialDerivative{2}((u, v))
+julia> Γ = christoffel((u, v), basis)
+IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[1 / u 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 1 / v], (:contra, :co, :co)), (:l,), (:j, :k))
+julia> x = Tensor([2u + v^2, 1v])
+Tensor{Num, 1}(Num[2u + v^2, v], (:contra,))
+julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
+CovariantDerivative(Tensor{Num, 3}(Num[1 / u 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 1 / v], (:contra, :co, :co)), PartialDerivative{2}((u, v)))
+julia> ∇[:k] * x[:i]
+IndexedTensor{Num, 2, 1, 1}(Tensor{Num, 2}(Num[2 + (2u + v^2) / u 2v; 0.0 2.0], (:contra, :co)), (:i,), (:k,))
+```
+"""
+function Base.:*(∇::IndexedCovariantDerivative, A::IndexedTensor)
+    Γ = ∇.covariant.connection
+    ∂ = ∇.covariant.partial
+    B = ∂[∇.index] * A
+    for index in A.contravariant
+        dummy_index = Symbol("dummy_$index")
+        C_contravariant = collect(A.contravariant)
+        contra_index = findfirst(x -> x == index, A.contravariant)
+        C_contravariant[contra_index] = dummy_index
+        ΓIndexed = Γ[index][dummy_index, ∇.index]
+        C = IndexedTensor(A.tensor, Tuple(C_contravariant), A.covariant)
+        B += ΓIndexed * C
+    end
+    for index in A.covariant
+        dummy_index = Symbol("dummy_$index")
+        C_covariant = collect(A.covariant)
+        co_index = findfirst(x -> x == index, A.covariant)
+        C_covariant[co_index] = dummy_index
+        ΓIndexed = Γ[dummy_index][index, ∇.index]
+        C = IndexedTensor(A.tensor, A.contravariant, Tuple(C_covariant))
+        B -= ΓIndexed * C
+    end
+    return B
 end
 
 function find_index(target, A::IndexedTensor, variance)
@@ -629,8 +938,69 @@ function LinearAlgebra.inv(A::Tensor)
         error("Must either a (2, 0) or (0, 2) tensor")
     end
     if A.variance[1] == :co
-        return Tensor(inv(A.data), (:contra, :contra))
+        return Tensor(inv(Matrix{Num}(A.data)), (:contra, :contra))
     else
-        return Tensor(inv(A.data), (:co, :co))
+        return Tensor(inv(Matrix{Num}(A.data)), (:co, :co))
     end
+end
+
+"""
+Define the inner product on two (1, 0) tensors
+
+# Examples
+```
+julia> v = Tensor([1, 2]); w = Tensor([3, -1])
+Tensor{Int64, 1}([3, -1], (:contra,))
+julia> v ⋅ w
+1
+```
+"""
+function LinearAlgebra.:⋅(A::Tensor, B::Tensor)
+    if A.variance != (:contra,) || B.variance != (:contra,)
+        error("A and B must both be (1, 0) tensors")
+    end
+    return sum([A.data[i] * B.data[i] for i in eachindex(A.data)])
+end
+
+"""
+Compute the metric tensor g from a vector basis
+
+# Examples
+```
+julia> basis = (Tensor([1, 2]), Tensor([3, -1]))
+(Tensor{Int64, 1}([1, 2], (:contra,)), Tensor{Int64, 1}([3, -1], (:contra,)))
+julia> g = metric(basis)
+Tensor{Int64, 2}([5 1; 1 10], (:co, :co))
+```
+"""
+function metric(basis)
+    g = [basis[i] ⋅ basis[j] for i in eachindex(basis), j in eachindex(basis)]
+    return Tensor(g, (:co, :co,))
+end
+
+"""
+Compute the Christoffel Symbols Γ for the Levi-Civita Connection from the coordinates and a basis
+
+Returns a (1, 2) IndexedTensor with indices [:l][:j, :k]
+
+# Examples
+```
+julia> @variables u v
+2-element Vector{Num}:
+ u
+ v
+julia> basis = (Tensor([u, 0]), Tensor([0, v]))
+(Tensor{Num, 1}(Num[u, 0], (:contra,)), Tensor{Num, 1}(Num[0, v], (:contra,)))
+julia> christoffel((u, v), basis)
+IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[1 / u 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 1 / v], (:contra, :co, :co)), (:l,), (:j, :k))
+```
+"""
+function christoffel(coordinates, basis)
+    ∂ = PartialDerivative(coordinates)
+    g = metric(basis)
+    G = inv(g)
+    T1 = ∂[:k] * g[:r, :j]
+    T2 = ∂[:j] * g[:r, :k]
+    T3 = ∂[:r] * g[:j, :k]
+    return 0.5 * G[:l, :r] * (T1 + T2 - T3)
 end
