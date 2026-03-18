@@ -9,7 +9,7 @@ symbols, and covariant derivative.
 Tensor{T, R} - An arbitrary rank R (m, n)-tensor of a type T
 KroneckerDelta - The Kronecker Delta δ
 LeviCivita - The Levi-Civita Symbol ε
-PartialDerivative - The partial derivative operator ∂
+PartialDerivative{N} - The partial derivative operator ∂ on N coordinates
 CovariantDerivative - The covariant derivative operator ∇
 
 # Functions
