@@ -1,32 +1,49 @@
 """
 TensorAlgebra.jl
 
-This Julia package allows for general operations with tensors,
-including the tensor product and contraction.
+This Julia package allows for tensor algebra and calculus using the Einstein summation convention and
+symbolic indexing. It also includes tools for differential geometry, like the metric tensor, Christoffel
+symbols, and covariant derivative.
 
 # Types
-Tensor{T, N} - General (m, n) tensor of objects with type T
+Tensor{T, R} - An arbitrary rank R (m, n)-tensor of a type T
 KroneckerDelta - The Kronecker Delta δ
 LeviCivita - The Levi-Civita Symbol ε
+PartialDerivative - The partial derivative operator ∂
+CovariantDerivative - The covariant derivative operator ∇
 
 # Functions
-Tensor - Wrapper for Tensor{T, N}, takes nested vectors (contravariant indices) and adjoints (covariant indices)
-getindex - Allows indexing independently through contra and covariant indices, and taking the trace
+**General**
+Tensor() - Constructor for Tensor{T, R}
+getindex() - Einstein convention indexing
+**Algebra**
 ⊗ - Tensor product
-* - Tensor contraction
+* - Tensor scaling and contraction
++ - Tensor addition
+- - Tensor subtraction
+⋅ - Dot product for (1, 0)-tensors
+**Geometry**
+metric() - Metric tensor from a basis
+inv() - Invert a (2, 0) or (0, 2)-tensor
+christoffel() - Compute the Levi-Civita Connection coefficients
 
 # Examples
+Defining a tensor
 ```
-julia> v = Tensor([1, 2])
-Tensor{Int64, 1}([1, 2], (:contra,))
-julia> w = Tensor([3, -1]')
-Tensor{Int64, 1}([3, -1], (:co,))
+julia> L = Tensor([[1, 2]', [3, -1]'])
+Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
+```
+Tensor contraction
+```
+julia> v = Tensor([4, -2]); w = Tensor([1, 1]')
 julia> v[:i] * w[:i]
-1.0
-julia> L = v ⊗ w
-Tensor{Int64, 2}([3 -1; 6 -2], (:contra, :co))
-julia> w[:i] * L[:i][:j] * 5 * v[:j]
-5.0
+2
+```
+Finding the metric tensor
+```
+julia> v = Tensor([3, 1]); u = Tensor([-1, 2])
+julia> metric((u, v))
+Tensor{Int64, 2}([5 -1; -1 10], (:co, :co))
 ```
 
 contraflux
@@ -46,9 +63,9 @@ data::Array{T, N}
 variance::NTuple{N, Symbol}
     - A tuple of :contra and :co denoting the transformation rules for each index.
 """
-struct Tensor{T, N}
-    data::Array{T, N}
-    variance::NTuple{N, Symbol}
+struct Tensor{T, R}
+    data::Array{T, R}
+    variance::NTuple{R, Symbol}
 end
 
 """
