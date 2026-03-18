@@ -7,6 +7,7 @@ including the tensor product and contraction.
 # Types
 Tensor{T, N} - General (m, n) tensor of objects with type T
 KroneckerDelta - The Kronecker Delta δ
+LeviCivita - The Levi-Civita Symbol ε
 
 # Functions
 Tensor - Wrapper for Tensor{T, N}, takes nested vectors (contravariant indices) and adjoints (covariant indices)
@@ -100,16 +101,54 @@ struct PartialIndexedTensor{T, R, M}
     contravariant::NTuple{M, Symbol}
 end
 
+"""
+The Kronecker Delta δ
+"""
 struct KroneckerDelta
 end
 
+"""
+Indexed Kronecker Delta
+
+# Fields
+indices::NTuple{2, Symbol}
+    - The collection of symbols representing the indices
+
+# Examples
+An Kronecker Delta
+```
+julia> δ = KroneckerDelta()
+KroneckerDelta()
+julia> δ[:i, :j]
+IndexedKroneckerDelta((:i, :j))
+```
+"""
 struct IndexedKroneckerDelta
     indices::NTuple{2, Symbol}
 end
 
+
+"""
+The Levi-Civita Symbol ε
+"""
 struct LeviCivita
 end
 
+"""
+Indexed Levi-Civita Symbol
+
+# Fields
+indices::NTuple{N, Symbol}
+    - The collection of symbols representing the indices
+
+# Examples
+```
+julia> ε = LeviCivita()
+LeviCivita()
+julia> ε[:i, :j, :k]
+IndexedLeviCivita{3}((:i, :j, :k))
+```
+"""
 struct IndexedLeviCivita{N}
     indices::NTuple{N, Symbol}
 end
@@ -257,6 +296,30 @@ function Base.getindex(A::PartialIndexedTensor, indices...)
     return B
 end
 
+"""
+Index a Kronecker Delta with either integer or symbolic indices.
+If given integer indices, returns the Kronecker Delta evaluated on those indices.
+If given symbolic indices, returns an IndexedKroneckerDelta for use in Einstein summation via *.
+
+# Arguments
+δ::KroneckerDelta
+    - The Kronecker Delta to index
+
+indices...
+    - Either integer or symbolic indices
+
+# Examples
+```
+julia> δ = KroneckerDelta()
+KroneckerDelta()
+julia> δ[1, 2]
+0
+julia> δ[3, 3]
+1
+julia> δ[:i, :j]
+IndexedKroneckerDelta((:i, :j))
+```
+"""
 function Base.getindex(δ::KroneckerDelta, indices...)
     if all(isa.(indices, Symbol))
         return IndexedKroneckerDelta((indices[1], indices[2]))
@@ -269,6 +332,30 @@ function Base.getindex(δ::KroneckerDelta, indices...)
     end
 end
 
+"""
+Index a Levi-Civita Symbol with either integer or symbolic indices.
+If given integer indices, returns the Levi-Civita Symbol evaluated on those indices.
+If given symbolic indices, returns an IndexedLeviCivita for use in Einstein summation via *.
+
+# Arguments
+ε::LeviCivita
+    - The Levi-Civita Symbol to index
+
+indices...
+    - Either integer or symbolic indices
+
+# Examples
+```
+julia> ε = LeviCivita()
+LeviCivita()
+julia> ε[1, 2, 3]
+1.0
+julia> ε[1, 3, 2]
+-1.0
+julia> ε[:i, :j, :k]
+IndexedLeviCivita{3}((:i, :j, :k))
+```
+"""
 function Base.getindex(ε::LeviCivita, indices...)
     if all(isa.(indices, Symbol))
         return IndexedLeviCivita((indices))
@@ -447,12 +534,10 @@ function Base.:*(A::IndexedTensor, ε::IndexedLeviCivita)
     if !all(dim -> dim == dims[1], dims)
         error("Levi Civita has non-constant dimension")
     end
-    println(dims)
     append!(dims, [dims[1] for _ in free_indices])
     B = zeros(Int, dims...)
     n = max(dims[1], length(dims))
     id = Matrix(I, n, n)
-    println(dims)
     for indices in Iterators.product(ntuple(_ -> 1:dims[1], length(dims))...)
         B[collect(indices)...] = round(Int, sign(det(id[collect(indices), 1:length(dims)])))
     end
