@@ -107,6 +107,13 @@ struct IndexedKroneckerDelta
     indices::NTuple{2, Symbol}
 end
 
+struct LeviCivita
+end
+
+struct IndexedLeviCivita{N}
+    indices::NTuple{N, Symbol}
+end
+
 """
 Simple constructor for (m, n) tensors of objects with type T
 
@@ -259,6 +266,15 @@ function Base.getindex(δ::KroneckerDelta, indices...)
         else
             return 0
         end
+    end
+end
+
+function Base.getindex(ε::LeviCivita, indices...)
+    if all(isa.(indices, Symbol))
+        return IndexedLeviCivita((indices))
+    else
+        id = Matrix(I, length(indices), length(indices))
+        return sign(det(id[collect(indices), :]))
     end
 end
 
@@ -421,7 +437,39 @@ function Base.:*(δ::IndexedKroneckerDelta, A::IndexedTensor)
     return A * δ
 end
 
-function find_index(target, A, variance)
+function Base.:*(A::IndexedTensor, ε::IndexedLeviCivita)
+    pairs = find_pairs(A, ε)
+    if isempty(pairs)
+        error("Levi Civita has no common indices")
+    end
+    free_indices = setdiff(ε.indices, map(x -> x[3], pairs))
+    dims = map(x -> size(A.tensor.data, x[1]), pairs)
+    if !all(dim -> dim == dims[1], dims)
+        error("Levi Civita has non-constant dimension")
+    end
+    println(dims)
+    append!(dims, [dims[1] for _ in free_indices])
+    B = zeros(Int, dims...)
+    n = max(dims[1], length(dims))
+    id = Matrix(I, n, n)
+    println(dims)
+    for indices in Iterators.product(ntuple(_ -> 1:dims[1], length(dims))...)
+        B[collect(indices)...] = round(Int, sign(det(id[collect(indices), 1:length(dims)])))
+    end
+    εTensor = Tensor(B, Tuple([pairs[1][4] == :contra ? :co : :contra for _ in dims]))
+    if pairs[1][4] == :contra
+        εIndexedTensor = IndexedTensor(εTensor, (), ε.indices)
+    else
+        εIndexedTensor = IndexedTensor(εTensor, ε.indices, ())
+    end
+    return A * εIndexedTensor
+end
+
+function Base.:*(ε::IndexedLeviCivita, A::IndexedTensor)
+    return A * ε
+end
+
+function find_index(target, A::IndexedTensor, variance)
     space = variance == :contra ? A.contravariant : A.covariant
     contra_index = findfirst(x -> x == target, space)
     index = findindex(contra_index, A.tensor.variance, variance)
@@ -452,6 +500,21 @@ function find_pairs(A::IndexedTensor, δ::IndexedKroneckerDelta)
     for index in intersect(A.covariant, δ.indices)
         A_index = find_index(index, A, :co)
         push!(pairs, (A_index, index, :co))
+    end
+    return pairs
+end
+
+function find_pairs(A::IndexedTensor, ε::IndexedLeviCivita)
+    pairs = []
+    for index in intersect(A.contravariant, ε.indices)
+        A_index = find_index(index, A, :contra)
+        ε_index = findfirst(x -> x == index, ε.indices)
+        push!(pairs, (A_index, ε_index, index, :contra))
+    end
+    for index in intersect(A.covariant, ε.indices)
+        A_index = find_index(index, A, :co)
+        ε_index = findfirst(x -> x == index, ε.indices)
+        push!(pairs, (A_index, ε_index, index, :co))
     end
     return pairs
 end
