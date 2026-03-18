@@ -54,13 +54,13 @@ using LinearAlgebra
 using Symbolics
 
 """
-General (m, n) tensor of objects with type T
+An arbitrary rank R (m, n)-tensor of a type T, where R = m + n
 
 # Fields
-data::Array{T, N}
+data::Array{T, R}
     - The data in the tensor
 
-variance::NTuple{N, Symbol}
+variance::NTuple{R, Symbol}
     - A tuple of :contra and :co denoting the transformation rules for each index.
 """
 struct Tensor{T, R}
@@ -69,7 +69,9 @@ struct Tensor{T, R}
 end
 
 """
-Indexed (M, N) tensor of objects with type T
+An indexed rank R (M, N)-tensor for type T.
+
+Returned by getindex(A::Tensor, indices...) and getindex(A::PartialIndexedTensor, indices...)
 
 # Fields
 tensor::Tensor{T, R}
@@ -82,26 +84,12 @@ covariant::NTuple{N, Symbol}
     - The collection of symbols representing the covariant indices
 
 # Examples
-An indexed vector, (1, 0) tensor
-```
-julia> v = Tensor([1, 3])
-Tensor{Int64, 1}([1, 3], (:contra,))
-julia> v[:i]
-IndexedTensor{Int64, 1, 1, 0}(Tensor{Int64, 1}([1, 3], (:contra,)), (:i,), ())
-```
-An indexed covector, (0, 1) tensor
-```
-julia> w = Tensor([2, 5]')
-Tensor{Int64, 1}([2, 5], (:co,))
-julia> w[:j]
-IndexedTensor{Int64, 1, 0, 1}(Tensor{Int64, 1}([2, 5], (:co,)), (), (:j,))
-```
 An indexed (1, 2) tensor
 ```
 julia> M = Tensor([[[1, 2]', [3, 4]'], [[5, 6]', [7, 8]']]')
 Tensor{Int64, 3}([1 3; 5 7;;; 2 4; 6 8], (:co, :contra, :co))
 julia> M[:i][:j,:k]
-IndexedTensor{Int64, 3, 1, 2}(Tensor{Int64, 3}([1 3; 5 7;;; 2 4; 6 8], (:co, :contra, :co)), (:i,), (:j, :k))
+IndexedTensor{Int64, 3, 1, 2}(Tensor{Int64, 3}..., (:i,), (:j, :k))
 ```
 """
 struct IndexedTensor{T, R, M, N}
@@ -110,10 +98,20 @@ struct IndexedTensor{T, R, M, N}
     covariant::NTuple{N, Symbol}
 end
 
-struct SplitTensor{T, N}
-    data::Array{T, N}
-end
+"""
+Internal. Intermediate between Tensor{T, R} and IndexedTensor{T, R, M, N}, without specified
+covariant indices.
 
+Returned by getindex(A::Tensor, indices...).
+
+# Fields
+tensor::Tensor{T, R}
+    - The tensor that has been indexed
+
+contravariant::NTuple{M, Symbol}
+    - The collection of symbols representing the contravariant indices
+```
+"""
 struct PartialIndexedTensor{T, R, M}
     tensor::Tensor{T, R}
     contravariant::NTuple{M, Symbol}
@@ -121,6 +119,16 @@ end
 
 """
 The Kronecker Delta δ
+
+Contracts with tensors as δ[:i, :j], returning 1 if i = j and 0 otherwise.
+
+# Examples
+```
+julia> L = Tensor([[1, 2]', [3, 4]'])
+julia> δ = KroneckerDelta()
+julia> L[:i][:j] * δ[:i, :k]
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([1 3; 2 4], (:co, :contra)), (:k,), (:j,))
+```
 """
 struct KroneckerDelta
 end
@@ -128,15 +136,15 @@ end
 """
 Indexed Kronecker Delta
 
+Returned by getindex(δ::KroneckerDelta, indices...)
+
 # Fields
 indices::NTuple{2, Symbol}
     - The collection of symbols representing the indices
 
 # Examples
-An Kronecker Delta
 ```
 julia> δ = KroneckerDelta()
-KroneckerDelta()
 julia> δ[:i, :j]
 IndexedKroneckerDelta((:i, :j))
 ```
@@ -145,15 +153,27 @@ struct IndexedKroneckerDelta
     indices::NTuple{2, Symbol}
 end
 
-
 """
 The Levi-Civita Symbol ε
+
+Contracts with tensors as ε[:i, :j, :k, ...], returning 0 if any indices are repeated, 1 if
+(i, j, k...) is an even permutation, and -1 if it is an odd permutation.
+
+# Examples
+```
+julia> v = Tensor([2, 1]); u = Tensor([-3, 2])
+julia> ε = LeviCivita()
+julia> v[:i] * u[:j] * ε[:i, :j]
+7
+```
 """
 struct LeviCivita
 end
 
 """
 Indexed Levi-Civita Symbol
+
+Returned by getindex(ε::LeviCivita, indices...)
 
 # Fields
 indices::NTuple{N, Symbol}
@@ -162,7 +182,6 @@ indices::NTuple{N, Symbol}
 # Examples
 ```
 julia> ε = LeviCivita()
-LeviCivita()
 julia> ε[:i, :j, :k]
 IndexedLeviCivita{3}((:i, :j, :k))
 ```
@@ -174,6 +193,8 @@ end
 """
 The Partial Derivative Operator ∂
 
+Contracts with tensors as ∂[:i], generating the partial derivative across the coordinates indexed by i
+
 # Fields
 coordinates::NTuple{N, Num}
     - The coordinates to differentiate with respect to
@@ -181,11 +202,10 @@ coordinates::NTuple{N, Num}
 # Examples
 ```
 julia> @variables u v
-2-element Vector{Num}:
- u
- v
+julia> x = Tensor([u^2, v])
 julia> ∂ = PartialDerivative((u, v))
-PartialDerivative{2}((u, v))
+julia> ∂[:k] * x[:k]
+1 + 2u
 ```
 """
 struct PartialDerivative{N}
@@ -195,16 +215,18 @@ end
 """
 The Indexed Partial Derivative Operator
 
+Returned by getindex(∂::PartialDerivative, indices...)
+
 # Fields
 partial::PartialDerivative
-    - The underlying partial Derivative
+    - The underlying partial derivative
 index::Symbol
     - The index of the coordinate
 
 # Examples
 ```
+julia> @variables u v
 julia> ∂ = PartialDerivative((u, v))
-PartialDerivative{2}((u, v))
 julia> ∂[:i]
 IndexedPartialDerivative(PartialDerivative{2}((u, v)), :i)
 ```
@@ -217,26 +239,24 @@ end
 """
 The Covariant Derivative Operator ∇
 
+Contracts with tensors as ∇[:i], generating the covariant derivative across the coordinates indexed by i
+
 # Fields
 connection::Tensor
     - A (1, 2) tensor containing the connection coefficients
 partial::PartialDerivative
-    - The partial differention operator
+    - The partial differentiation operator
 
 # Examples
 ```
 julia> @variables u v
-2-element Vector{Num}:
- u
- v
 julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
-(Tensor{Int64, 1}([1, 0], (:contra,)), Tensor{Int64, 1}([0, 1], (:contra,)))
+julia> x = Tensor([u^2, v])
 julia> Γ = christoffel((u, v), basis)
-IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), (:l,), (:j, :k))
 julia> ∂ = PartialDerivative((u, v))
-PartialDerivative{2}((u, v))
 julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
-CovariantDerivative(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), PartialDerivative{2}((u, v)))
+julia> ∇[:k] * x[:k]
+1 + 2u
 ```
 """
 struct CovariantDerivative
@@ -247,6 +267,8 @@ end
 """
 The Indexed Covariant Derivative Operator
 
+Returned by getindex(∇::CovariantDerivative, indices...)
+
 # Fields
 covariant::CovariantDerivative
     - The underlying covariant derivative
@@ -255,10 +277,13 @@ index::Symbol
 
 # Examples
 ```
+julia> @variables u v
+julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
+julia> Γ = christoffel((u, v), basis)
+julia> ∂ = PartialDerivative((u, v))
 julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
-CovariantDerivative(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), PartialDerivative{2}((u, v)))
 julia> ∇[:k]
-IndexedCovariantDerivative(CovariantDerivative(Tensor{Num, 3}(Num[0.0 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 0.0], (:contra, :co, :co)), PartialDerivative{2}((u, v))), :k)
+IndexedCovariantDerivative(CovariantDerivative(Tensor{Num, 3}..., PartialDerivative{2}...), :k)
 ```
 """
 struct IndexedCovariantDerivative
@@ -267,9 +292,9 @@ struct IndexedCovariantDerivative
 end
 
 """
-Simple constructor for (m, n) tensors of objects with type T
+Wrapper to create rank R (m, n)-tensors with nested vectors and adjoints.
 
-Takes in nested vectors and adjoints, inferring co and contravariance.
+Each vector corresponds to a contravariant index, and each adjoint corresponds to a covariant index.
 
 # Examples
 A vector, (1, 0) tensor
@@ -300,6 +325,9 @@ function Tensor(data)
     return Tensor(permuted_data, Tuple(variance))
 end
 
+"""
+Internal. Collects nested vectors and adjoints into an array.
+"""
 function clean_data(data)
     if isa(data, Adjoint)
         return clean_data(parent(data))
@@ -310,6 +338,10 @@ function clean_data(data)
     end
 end
 
+"""
+Internal. Compiles nested vectors and adjoints into variances, interpreting vectors as
+contravariant and adjoints as covariant.
+"""
 function get_variance(data, variance)
     if isa(data, Adjoint)
         push!(variance, :co)
@@ -324,7 +356,7 @@ end
 
 """
 Index a tensor with either integer or symbolic indices.
-If given integer indices, provides the contravariant indices in the first bracket and covariant indices in the second bracket, returning a scalar.
+If given integer indices, provides the contravariant indices in the first bracket and covariant indices in the second bracket, returning a scalar or array.
 If given symbolic indices, returns an IndexedTensor or PartialIndexedTensor for use in Einstein summation via *.
 
 # Arguments
@@ -337,12 +369,10 @@ indices...
 # Examples
 ```
 julia> L = Tensor([[1, 2]', [3, 4]'])
-Tensor{Int64, 2}([1 3; 2 4], (:contra, :co))
 julia> L[1][2]
-3
+2
 julia> L[:i][:j]
-IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([1 3; 2 4], (:contra, :co)), (:i,), (:j,))
-```
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}..., (:i,), (:j,))```
 """
 function Base.getindex(A::Tensor, indices...)
     a = A.data
@@ -371,15 +401,7 @@ function Base.getindex(A::Tensor, indices...)
     elseif (count == length(A.variance)) # If it's purely contravariant
         return a[slicing...]
     end
-    return SplitTensor(a[slicing...])
-end
-
-"""
-Internal. Completes the covariant half of two-bracket integer indexing on a Tensor.
-"""
-function Base.getindex(A::SplitTensor, indices...)
-    a = A.data
-    return a[indices...]
+    return a[slicing...]
 end
 
 """
@@ -395,24 +417,6 @@ function Base.getindex(A::PartialIndexedTensor, indices...)
     return self_contract(IndexedTensor(A.tensor, A.contravariant, indices), duplicates)
 end
 
-function self_contract(A::IndexedTensor, duplicates)
-    pairs = []
-    B_covariant = collect(A.covariant)
-    for i in eachindex(duplicates)
-        index = duplicates[i]
-        dummy_index = Symbol("dummy_$i")
-        co_index = findfirst(x -> x == index, A.covariant)
-        B_covariant[co_index] = dummy_index
-        push!(pairs, (index, dummy_index))
-    end
-    B = IndexedTensor(A.tensor, A.contravariant, Tuple(B_covariant))
-    δ = KroneckerDelta()
-    for (index, dummy_index) in pairs
-        B = B * δ[index, dummy_index]
-    end
-    return B
-end
-
 """
 Index a Kronecker Delta with either integer or symbolic indices.
 If given integer indices, returns the Kronecker Delta evaluated on those indices.
@@ -424,29 +428,12 @@ If given symbolic indices, returns an IndexedKroneckerDelta for use in Einstein 
 
 indices...
     - Either integer or symbolic indices
-
-# Examples
-```
-julia> δ = KroneckerDelta()
-KroneckerDelta()
-julia> δ[1, 2]
-0
-julia> δ[3, 3]
-1
-julia> δ[:i, :j]
-IndexedKroneckerDelta((:i, :j))
-```
 """
 function Base.getindex(δ::KroneckerDelta, indices...)
     if all(isa.(indices, Symbol))
         return IndexedKroneckerDelta((indices[1], indices[2]))
-    else
-        if indices[1] == indices[2]
-            return 1
-        else
-            return 0
-        end
     end
+    return indices[1] == indices[2] ? 1 : 0
 end
 
 """
@@ -460,26 +447,13 @@ If given symbolic indices, returns an IndexedLeviCivita for use in Einstein summ
 
 indices...
     - Either integer or symbolic indices
-
-# Examples
-```
-julia> ε = LeviCivita()
-LeviCivita()
-julia> ε[1, 2, 3]
-1.0
-julia> ε[1, 3, 2]
--1.0
-julia> ε[:i, :j, :k]
-IndexedLeviCivita{3}((:i, :j, :k))
-```
 """
 function Base.getindex(ε::LeviCivita, indices...)
     if all(isa.(indices, Symbol))
         return IndexedLeviCivita((indices))
-    else
-        id = Matrix(I, length(indices), length(indices))
-        return sign(det(id[collect(indices), :]))
     end
+    id = Matrix(I, length(indices), length(indices))
+    return sign(det(id[collect(indices), :]))
 end
 
 """
@@ -495,7 +469,10 @@ indices...
     - The symbolic index
 """
 function Base.getindex(∂::PartialDerivative, indices...)
-    return IndexedPartialDerivative(∂, indices[1])
+    if all(isa.(indices, Symbol))
+        return IndexedPartialDerivative(∂, indices[1])
+    end
+    return nothing
 end
 
 """
@@ -511,7 +488,10 @@ indices...
     - The symbolic index
 """
 function Base.getindex(∇::CovariantDerivative, indices...)
-    return IndexedCovariantDerivative(∇, indices[1])
+    if all(isa.(indices, Symbol))
+        return IndexedCovariantDerivative(∇, indices[1])
+    end
+    return nothing
 end
 
 """
@@ -523,14 +503,12 @@ Given an (m, n) tensor A and a (p, q) tensor B, returns an (m + p, n + q) tensor
 A vector times a covector, returning a linear map
 ```
 julia> v = Tensor([1, 2]); w = Tensor([3, 5]')
-Tensor{Int64, 1}([3, 5], (:co,))
 julia> v ⊗ w
 Tensor{Int64, 2}([3 5; 6 10], (:contra, :co))
 ```
 A covector and vector times a linear map, returning a (2, 2) tensor
 ```
 julia> L = Tensor([[4, -1]', [2, -3]'])
-Tensor{Int64, 2}([4 -1; 2 -3], (:contra, :co))
 julia> L ⊗ w ⊗ v
 Tensor{Int64, 4}([12 -3; 6 -9;;; 20 -5; 10 -15;;;; 24 -6; 12 -18;;; 40 -10; 20 -30], (:contra, :co, :co, :contra))
 ```
@@ -545,14 +523,11 @@ end
 """
 Computes the sum of two tensors
 
-Given an (m, n) tensor A and a (m, n) tensor B, returns an (m, n) tensor
+Given an (m, n) tensor A and a (m, n) tensor B with matching indices, returns an (m, n) tensor.
 
 # Examples
 ```
-julia> A = Tensor([[1, 2]', [3, -1]'])
-Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
-julia> B = Tensor([[5, -2]', [1, 1]'])
-Tensor{Int64, 2}([5 -2; 1 1], (:contra, :co))
+julia> A = Tensor([[1, 2]', [3, -1]']); B = Tensor([[5, -2]', [1, 1]'])
 julia> A[:i][:j] + B[:i][:j]
 IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([6 0; 4 0], (:contra, :co)), (:i,), (:j,))
 ```
@@ -583,14 +558,11 @@ end
 """
 Computes the difference of two tensors
 
-Given an (m, n) tensor A and a (m, n) tensor B, returns an (m, n) tensor
+Given an (m, n) tensor A and a (m, n) tensor B with matching indices, returns an (m, n) tensor
 
 # Examples
 ```
-julia> A = Tensor([[1, 2]', [3, -1]'])
-Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
-julia> B = Tensor([[5, -2]', [1, 1]'])
-Tensor{Int64, 2}([5 -2; 1 1], (:contra, :co))
+julia> A = Tensor([[1, 2]', [3, -1]']); B = Tensor([[5, -2]', [1, 1]'])
 julia> A[:i][:j] - B[:i][:j]
 IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([-4 4; 2 -2], (:contra, :co)), (:i,), (:j,))
 ```
@@ -600,22 +572,23 @@ function Base.:-(A::IndexedTensor, B::IndexedTensor)
 end
 
 """
-Computes the contraction of two tensors along the specified indices
+Computes the contraction of two tensors A and B along the specified indices.
+
+If no indices match, return the tensor product of A and B
 
 # Examples
 A covector acting on a vector, returning a scalar
 ```
 julia> v = Tensor([1, 2]); w = Tensor([3, 5]')
-Tensor{Int64, 1}([3, 5], (:co,))
 julia> v[:i] * w[:i]
 13.0
 ```
 A linear map acting on a vector, returning a vector
 ```
 julia> L = Tensor([[4, -1]', [2, -3]'])
-Tensor{Int64, 2}([4 -1; 2 -3], (:contra, :co))
 julia> L[:i][:j] * v[:j]
 Tensor{Float64, 1}([2.0, -4.0], (:contra,))
+```
 """
 function Base.:*(A::IndexedTensor, B::IndexedTensor)
     # Simple error checking to avoid repeated indices
@@ -705,12 +678,11 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
 end
 
 """
-Computes tensor scaling
+Scales every element of a tensor A by number s.
 
 # Examples
 ```
 julia> A = Tensor([[1, 2]', [3, -1]'])
-Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
 julia> 2 * A[:i][:j]
 IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([2 4; 6 -2], (:contra, :co)), (:i,), (:j,))
 ```
@@ -719,6 +691,7 @@ function Base.:*(A::IndexedTensor, s::Number)
     scaled = A.tensor.data .* s
     return IndexedTensor(Tensor(scaled, A.tensor.variance), A.contravariant, A.covariant)
 end
+
 
 function Base.:*(s::Number, A::IndexedTensor)
     return A * s
@@ -730,9 +703,7 @@ Computes the contraction of a tensor and the Kronecker Delta
 # Examples
 ```
 julia> A = Tensor([[1, 2]', [3, -1]'])
-Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co))
 julia> δ = KroneckerDelta()
-KroneckerDelta()
 julia> A[:i][:j] * δ[:j, :k]
 IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}([1 2; 3 -1], (:contra, :co)), (:i,), (:k,))
 julia> A[:i][:j] * δ[:j, :i]
@@ -765,9 +736,7 @@ Computes the contraction of a tensor and the Levi-Civita Symbol
 # Examples
 ```
 julia> v = Tensor([1, 2]); u = Tensor([-2, 1])
-Tensor{Int64, 1}([-2, 1], (:contra,))
 julia> ε = LeviCivita()
-LeviCivita()
 julia> v[:i] * u[:j] * ε[:i, :j]
 5
 ```
@@ -803,18 +772,15 @@ function Base.:*(ε::IndexedLeviCivita, A::IndexedTensor)
 end
 
 """
-Applies a partial derivative to a tensor
+Computes the element-wise partial derivative of a tensor A with respect to the coordinates of ∂.
+
+Given an (m, n) tensor A, returns an (m, n+1) tensor. If indices are repeated, contract over them.
 
 # Examples
 ```
 julia> @variables u v
-2-element Vector{Num}:
- u
- v
 julia> A = Tensor([[u, 2v]', [3u, v^2]'])
-Tensor{Num, 2}(Num[u 2v; 3u v^2], (:contra, :co))
 julia> ∂ = PartialDerivative((u, v))
-PartialDerivative{2}((u, v))
 julia> ∂[:k] * A[:i][:j]
 IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[1 0; 3 0;;; 0 2; 0 2v], (:contra, :co, :co)), (:i,), (:j, :k))
 julia> ∂[:k] * A[:k][:j]
@@ -836,24 +802,19 @@ function Base.:*(∂::IndexedPartialDerivative, A::IndexedTensor)
 end
 
 """
-Applies a covariant derivative derivative to a tensor
+Computes the covariant derivative of a tensor A with respect to the coordinates of ∇.
+
+Given an (m, n) tensor A, returns an (m, n+1) tensor. If indices are repeated, contract over them.
+Accounts for the change in the basis vectors from the connection coefficients.
 
 # Examples
 ```
 julia> @variables u v
-2-element Vector{Num}:
- u
- v
 julia> basis = (Tensor([u, 0]), Tensor([0, v]))
-(Tensor{Num, 1}(Num[u, 0], (:contra,)), Tensor{Num, 1}(Num[0, v], (:contra,)))
 julia> ∂ = PartialDerivative((u, v))
-PartialDerivative{2}((u, v))
 julia> Γ = christoffel((u, v), basis)
-IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[1 / u 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 1 / v], (:contra, :co, :co)), (:l,), (:j, :k))
 julia> x = Tensor([2u + v^2, 1v])
-Tensor{Num, 1}(Num[2u + v^2, v], (:contra,))
 julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
-CovariantDerivative(Tensor{Num, 3}(Num[1 / u 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 1 / v], (:contra, :co, :co)), PartialDerivative{2}((u, v)))
 julia> ∇[:k] * x[:i]
 IndexedTensor{Num, 2, 1, 1}(Tensor{Num, 2}(Num[2 + (2u + v^2) / u 2v; 0.0 2.0], (:contra, :co)), (:i,), (:k,))
 ```
@@ -883,6 +844,27 @@ function Base.:*(∇::IndexedCovariantDerivative, A::IndexedTensor)
     return B
 end
 
+function self_contract(A::IndexedTensor, duplicates)
+    pairs = []
+    B_covariant = collect(A.covariant)
+    for i in eachindex(duplicates)
+        index = duplicates[i]
+        dummy_index = Symbol("dummy_$i")
+        co_index = findfirst(x -> x == index, A.covariant)
+        B_covariant[co_index] = dummy_index
+        push!(pairs, (index, dummy_index))
+    end
+    B = IndexedTensor(A.tensor, A.contravariant, Tuple(B_covariant))
+    δ = KroneckerDelta()
+    for (index, dummy_index) in pairs
+        B = B * δ[index, dummy_index]
+    end
+    return B
+end
+
+"""
+Internal. Converts a symbolic index to its index in a tensor's data array.
+"""
 function find_index(target, A::IndexedTensor, variance)
     space = variance == :contra ? A.contravariant : A.covariant
     contra_index = findfirst(x -> x == target, space)
@@ -890,6 +872,11 @@ function find_index(target, A::IndexedTensor, variance)
     return index
 end
 
+
+"""
+Internal. Finds symbolic pairs in the contravariant and covariant indices of two tensors A and B.
+Returns matching indices in the data arrays of A and B.
+"""
 function find_pairs(A::IndexedTensor, B::IndexedTensor)
     pairs = []
     for index in intersect(A.contravariant, B.covariant)
@@ -905,6 +892,11 @@ function find_pairs(A::IndexedTensor, B::IndexedTensor)
     return pairs
 end
 
+"""
+Internal. Finds symbolic pairs in the contravariant and covariant indices a tensor A and the
+Kronecker Delta δ. Returns matching indices in the data arrays of A and δ, including the variance
+of the index.
+"""
 function find_pairs(A::IndexedTensor, δ::IndexedKroneckerDelta)
     pairs = []
     for index in intersect(A.contravariant, δ.indices)
@@ -918,6 +910,11 @@ function find_pairs(A::IndexedTensor, δ::IndexedKroneckerDelta)
     return pairs
 end
 
+"""
+Internal. Finds symbolic pairs in the contravariant and covariant indices a tensor A and the
+Levi-Civita Symbol ε. Returns matching indices in the data arrays of A and ε, including the 
+symbolic index and the variance of the index.
+"""
 function find_pairs(A::IndexedTensor, ε::IndexedLeviCivita)
     pairs = []
     for index in intersect(A.contravariant, ε.indices)
@@ -933,6 +930,9 @@ function find_pairs(A::IndexedTensor, ε::IndexedLeviCivita)
     return pairs
 end
 
+"""
+Internal. Finds the index of the nth occurrance of key in a list.
+"""
 function findindex(desired_index, variance, key)
     count = 0
     var_index = 0
@@ -966,7 +966,7 @@ function LinearAlgebra.inv(A::Tensor)
 end
 
 """
-Define the inner product on two (1, 0) tensors
+Compute the inner product on two (1, 0) tensors
 
 # Examples
 ```
@@ -989,7 +989,6 @@ Compute the metric tensor g from a vector basis
 # Examples
 ```
 julia> basis = (Tensor([1, 2]), Tensor([3, -1]))
-(Tensor{Int64, 1}([1, 2], (:contra,)), Tensor{Int64, 1}([3, -1], (:contra,)))
 julia> g = metric(basis)
 Tensor{Int64, 2}([5 1; 1 10], (:co, :co))
 ```
@@ -1007,13 +1006,9 @@ Returns a (1, 2) IndexedTensor with indices [:l][:j, :k]
 # Examples
 ```
 julia> @variables u v
-2-element Vector{Num}:
- u
- v
 julia> basis = (Tensor([u, 0]), Tensor([0, v]))
-(Tensor{Num, 1}(Num[u, 0], (:contra,)), Tensor{Num, 1}(Num[0, v], (:contra,)))
 julia> christoffel((u, v), basis)
-IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}(Num[1 / u 0.0; 0.0 0.0;;; 0.0 0.0; 0.0 1 / v], (:contra, :co, :co)), (:l,), (:j, :k))
+IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}..., (:l,), (:j, :k))
 ```
 """
 function christoffel(coordinates, basis)
