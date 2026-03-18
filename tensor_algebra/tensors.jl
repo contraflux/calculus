@@ -110,7 +110,6 @@ tensor::Tensor{T, R}
 
 contravariant::NTuple{M, Symbol}
     - The collection of symbols representing the contravariant indices
-```
 """
 struct PartialIndexedTensor{T, R, M}
     tensor::Tensor{T, R}
@@ -372,7 +371,8 @@ julia> L = Tensor([[1, 2]', [3, 4]'])
 julia> L[1][2]
 2
 julia> L[:i][:j]
-IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}..., (:i,), (:j,))```
+IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}..., (:i,), (:j,))
+```
 """
 function Base.getindex(A::Tensor, indices...)
     a = A.data
@@ -844,6 +844,9 @@ function Base.:*(∇::IndexedCovariantDerivative, A::IndexedTensor)
     return B
 end
 
+"""
+Internal. Contracts a tensor A along duplicate indices by contracting with the Kronecker Delta δ
+"""
 function self_contract(A::IndexedTensor, duplicates)
     pairs = []
     B_covariant = collect(A.covariant)
@@ -966,7 +969,9 @@ function LinearAlgebra.inv(A::Tensor)
 end
 
 """
-Compute the inner product on two (1, 0) tensors
+Define the inner product on two (1, 0) tensors.
+
+Currently the standard inner product.
 
 # Examples
 ```
