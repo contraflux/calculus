@@ -644,7 +644,10 @@ function Base.:*(A::IndexedTensor, B::IndexedTensor)
     end
 
     free_ranges = [1:info.dimension for info in free_indices_info]
-    result = zeros(eltype(A.tensor.data), [info.dimension for info in free_indices_info]...)
+    # Promote element types across both tensors so e.g. Int64 * Float64 or Int64 * Num
+    # don't cause a type mismatch when accumulating into result
+    T = promote_type(eltype(A.tensor.data), eltype(B.tensor.data))
+    result = zeros(T, [info.dimension for info in free_indices_info]...)
     for free_index in Iterators.product(free_ranges...)
         for index in Iterators.product(ranges...)
             A_idx = Any[0 for _ in 1:ndims(A.tensor.data)]
@@ -937,10 +940,11 @@ function LinearAlgebra.inv(A::Tensor)
     elseif A.variance[1] != A.variance[2]
         error("Must either a (2, 0) or (0, 2) tensor")
     end
+    mat = eltype(A.data) <: Num ? Matrix{Num}(A.data) : Matrix{Float64}(A.data)
     if A.variance[1] == :co
-        return Tensor(inv(Matrix{Num}(A.data)), (:contra, :contra))
+        return Tensor(inv(mat), (:contra, :contra))
     else
-        return Tensor(inv(Matrix{Num}(A.data)), (:co, :co))
+        return Tensor(inv(mat), (:co, :co))
     end
 end
 
