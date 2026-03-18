@@ -1,5 +1,5 @@
 """
-TensorAlgebra.jl
+tensors.jl
 
 This Julia package allows for tensor algebra and calculus using the Einstein summation convention and
 symbolic indexing. It also includes tools for differential geometry, like the metric tensor, Christoffel

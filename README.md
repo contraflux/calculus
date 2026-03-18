@@ -1,4 +1,4 @@
-# Calculus
+# calculus.jl
 This package contains many useful functions for single- and multi-variable calculus.
 
 It also includes scripts to display slope and vector fields, as well as algorithms like Newton's method and Euler's method.
@@ -16,7 +16,7 @@ It also includes scripts to display slope and vector fields, as well as algorith
 
 **visuals/newton_method.jl** - Newton's method to solve for zeros of functions
 
-# TensorAlgebra.jl
+# tensors.jl
 
 This Julia package allows for tensor algebra and calculus using the Einstein summation convention and
 symbolic indexing. It also includes tools for differential geometry, like the metric tensor, Christoffel
