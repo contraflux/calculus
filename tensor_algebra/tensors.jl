@@ -253,7 +253,7 @@ julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
 julia> x = Tensor([u^2, v])
 julia> Γ = christoffel((u, v), basis)
 julia> ∂ = PartialDerivative((u, v))
-julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
+julia> ∇ = CovariantDerivative(Γ, ∂)
 julia> ∇[:k] * x[:k]
 1 + 2u
 ```
@@ -280,7 +280,7 @@ julia> @variables u v
 julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
 julia> Γ = christoffel((u, v), basis)
 julia> ∂ = PartialDerivative((u, v))
-julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
+julia> ∇ = CovariantDerivative(Γ, ∂)
 julia> ∇[:k]
 IndexedCovariantDerivative(CovariantDerivative(Tensor{Num, 3}..., PartialDerivative{2}...), :k)
 ```
@@ -355,8 +355,8 @@ end
 
 """
 Index a tensor with either integer or symbolic indices.
-If given integer indices, provides the contravariant indices in the first bracket and covariant indices in the second bracket, returning a scalar or array.
-If given symbolic indices, returns an IndexedTensor or PartialIndexedTensor for use in Einstein summation via *.
+
+Evaluate integer indices, and returns an IndexedTensor or PartialIndexedTensor for use in Einstein summation via *.
 
 # Arguments
 A::Tensor
@@ -374,7 +374,6 @@ julia> L[:i][:j]
 IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}..., (:i,), (:j,))
 ```
 """
-
 function Base.getindex(A::Tensor, indices...)
     m = count(x -> x == :contra, A.variance)
     n = count(x -> x == :co, A.variance)
@@ -393,6 +392,7 @@ function Base.getindex(A::Tensor, indices...)
         end
         new_variance = [A.variance[i] for i in eachindex(slicing) if slicing[i] == Colon()]
         symbols = filter(x -> x isa Symbol, indices)
+        # Scalar case
         if isempty(new_variance)
             return A.data[slicing...]
         end
@@ -411,6 +411,7 @@ function Base.getindex(A::Tensor, indices...)
     end
     new_variance = [A.variance[i] for i in eachindex(slicing) if slicing[i] == Colon()]
     symbols = filter(x -> x isa Symbol, indices)
+    # Scalar case
     if isempty(new_variance)
         return A.data[slicing...]
     end
@@ -849,7 +850,7 @@ julia> basis = (Tensor([u, 0]), Tensor([0, v]))
 julia> ∂ = PartialDerivative((u, v))
 julia> Γ = christoffel((u, v), basis)
 julia> x = Tensor([2u + v^2, 1v])
-julia> ∇ = CovariantDerivative(Γ.tensor, ∂)
+julia> ∇ = CovariantDerivative(Γ, ∂)
 julia> ∇[:k] * x[:i]
 IndexedTensor{Num, 2, 1, 1}(Tensor{Num, 2}(Num[2 + (2u + v^2) / u 2v; 0.0 2.0], (:contra, :co)), (:i,), (:k,))
 ```
@@ -1029,7 +1030,7 @@ end
 """
 Compute the Christoffel Symbols Γ for the Levi-Civita Connection from the coordinates and a basis
 
-Returns a (1, 2) IndexedTensor with indices [:l][:j, :k]
+Returns a (1, 2)-tensor containing the connection coefficients
 
 # Examples
 ```
@@ -1046,5 +1047,5 @@ function christoffel(coordinates, basis)
     T1 = ∂[:k] * g[:r, :j]
     T2 = ∂[:j] * g[:r, :k]
     T3 = ∂[:r] * g[:j, :k]
-    return 0.5 * G[:l, :r] * (T1 + T2 - T3)
+    return (0.5 * G[:l, :r] * (T1 + T2 - T3)).tensor
 end

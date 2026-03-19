@@ -54,6 +54,6 @@ T = Tensor([[u, -u]', [3v, u + v]']) # A non-constant linear map (1, 1)-tensor
 
 # Covariant derivatives
 Γ = christoffel((u, v), basis) # The Christoffel Symbols for the Levi-Civita Connection
-∇ = CovariantDerivative(Γ.tensor, ∂) # The covariant derivative
+∇ = CovariantDerivative(Γ, ∂) # The covariant derivative
 v = Tensor([u^2, v]) # A non-constant vector (1, 0)-tensor
 ∇[:k] * v[:i] # The covariant derivative of v, (1, 1)-tensor
