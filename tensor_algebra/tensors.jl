@@ -993,9 +993,7 @@ function LinearAlgebra.inv(A::Tensor)
 end
 
 """
-Define the inner product on two (1, 0) tensors.
-
-Currently the standard inner product.
+Define the standard inner product on two (1, 0) tensors.
 
 # Examples
 ```
@@ -1013,6 +1011,19 @@ function LinearAlgebra.:⋅(A::Tensor, B::Tensor)
 end
 
 """
+Define the Minkowski norm on two (1, 0) tensors.
+
+Sign convention is the timelike_positive argument, false by default. (-, +, +, +)
+"""
+function minkowski(A::Tensor, B::Tensor, timelike_positive=false)
+    if A.variance != (:contra,) || B.variance != (:contra,)
+        error("A and B must both be (1, 0) tensors")
+    end
+    k = timelike_positive ? 1 : -1
+    return (k * A.data[1] * B.data[1]) + sum([-k * A.data[i] * B.data[i] for i in 2:length(A.data)])
+end
+
+"""
 Compute the metric tensor g from a vector basis
 
 # Examples
@@ -1022,8 +1033,8 @@ julia> g = metric(basis)
 Tensor{Int64, 2}([5 1; 1 10], (:co, :co))
 ```
 """
-function metric(basis)
-    g = [basis[i] ⋅ basis[j] for i in eachindex(basis), j in eachindex(basis)]
+function metric(basis, inner_product=⋅)
+    g = [inner_product(basis[i], basis[j]) for i in eachindex(basis), j in eachindex(basis)]
     return Tensor(g, (:co, :co,))
 end
 

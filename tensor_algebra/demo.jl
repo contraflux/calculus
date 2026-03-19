@@ -30,6 +30,7 @@ M = v ⊗ ω ⊗ v # Two vectors combined with a covector -> (2, 1)-tensor
 basis = (Tensor([1, 1]), Tensor([0, 2])) # A vector basis
 g = metric(basis) # The metric tensor (0, 2)-tensor
 G = inv(g) # The inverse metric tensor (2, 0)-tensor
+g = metric(basis, minkowski) # The metric (0, 2)-tensor in Minkowski space with signature (-, +, +, +)
 
 # Kronecker Delta
 δ = KroneckerDelta()
