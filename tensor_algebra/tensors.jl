@@ -374,34 +374,51 @@ julia> L[:i][:j]
 IndexedTensor{Int64, 2, 1, 1}(Tensor{Int64, 2}..., (:i,), (:j,))
 ```
 """
+
 function Base.getindex(A::Tensor, indices...)
-    a = A.data
-    slicing = []
-    count = 0
-    for i in eachindex(A.variance)
-        if A.variance[i] == :co
-            push!(slicing, Colon())
-        else
-            count += 1
-            push!(slicing, indices[count])
+    m = count(x -> x == :contra, A.variance)
+    n = count(x -> x == :co, A.variance)
+    # Pure covariant case
+    if m == 0
+        if length(indices) != n
+            error("Incorrect number of indices provided")
+        end
+        slicing = Any[Colon() for _ in A.variance]
+        for i in eachindex(indices)
+            index = indices[i]
+            data_index = find_nth(i, A.variance, :co)
+            if !(index isa Symbol)
+                slicing[data_index] = index
+            end
+        end
+        new_variance = [A.variance[i] for i in eachindex(slicing) if slicing[i] == Colon()]
+        symbols = filter(x -> x isa Symbol, indices)
+        if isempty(new_variance)
+            return A.data[slicing...]
+        end
+        return IndexedTensor(Tensor(A.data[slicing...], Tuple(new_variance)), (), symbols)
+    end
+    if length(indices) != m
+        error("Incorrect number of indices provided")
+    end
+    slicing = Any[Colon() for _ in A.variance]
+    for i in eachindex(indices)
+        index = indices[i]
+        data_index = find_nth(i, A.variance, :contra)
+        if !(index isa Symbol)
+            slicing[data_index] = index
         end
     end
-    # If the indices are symbolic, return indexed tensors
-    if all(isa.(indices, Symbol))
-        if (count == 0) # If it's purely covariant
-            return IndexedTensor(A, (), indices)
-        elseif count == length(A.variance) # If it's purely contravariant
-            return IndexedTensor(A, indices, ())
-        end
-        return PartialIndexedTensor(A, indices)
+    new_variance = [A.variance[i] for i in eachindex(slicing) if slicing[i] == Colon()]
+    symbols = filter(x -> x isa Symbol, indices)
+    if isempty(new_variance)
+        return A.data[slicing...]
     end
-    # If the indices are integers, return the sliced data
-    if (count == 0) # If it's purely covariant
-        return a[indices...]
-    elseif (count == length(A.variance)) # If it's purely contravariant
-        return a[slicing...]
+    # Pure contravariant case
+    if n == 0
+        return IndexedTensor(Tensor(A.data[slicing...], Tuple(new_variance)), symbols, ())
     end
-    return a[slicing...]
+    return PartialIndexedTensor(Tensor(A.data[slicing...], Tuple(new_variance)), symbols)
 end
 
 """
@@ -410,11 +427,29 @@ Internal. Completes the covariant half of two-bracket symbolic indexing on a Ten
 If any index appears as both contravariant and covariant, contract over that index.
 """
 function Base.getindex(A::PartialIndexedTensor, indices...)
-    duplicates = intersect(A.contravariant, indices)
-    if isempty(duplicates)
-        return IndexedTensor(A.tensor, A.contravariant, indices)
+    n = count(x -> x == :co, A.tensor.variance)
+    if length(indices) != n
+        error("Incorrect number of indices provided")
     end
-    return self_contract(IndexedTensor(A.tensor, A.contravariant, indices), duplicates)
+    slicing = Any[Colon() for _ in A.tensor.variance]
+    for i in eachindex(indices)
+        index = indices[i]
+        data_index = find_nth(i, A.tensor.variance, :co)
+        if !(index isa Symbol)
+            slicing[data_index] = index
+        end
+    end
+    new_variance = [A.tensor.variance[i] for i in eachindex(slicing) if slicing[i] == Colon()]
+    symbols = filter(x -> x isa Symbol, indices)
+    if isempty(new_variance)
+        return A.tensor.data[slicing...]
+    end
+    B = IndexedTensor(Tensor(A.tensor.data[slicing...], Tuple(new_variance)), A.contravariant, symbols)
+    duplicates = intersect(B.contravariant, B.covariant)
+    if isempty(duplicates)
+        return B
+    end
+    return self_contract(B, duplicates)
 end
 
 """
@@ -541,14 +576,14 @@ function Base.:+(A::IndexedTensor, B::IndexedTensor)
     permutation_map = zeros(length(A.contravariant) + length(A.covariant))
     for A_index in eachindex(A.contravariant)
         B_index = findfirst(x -> x == A.contravariant[A_index], B.contravariant)
-        A_idx = findindex(A_index, A.tensor.variance, :contra)
-        B_idx = findindex(B_index, B.tensor.variance, :contra)
+        A_idx = find_nth(A_index, A.tensor.variance, :contra)
+        B_idx = find_nth(B_index, B.tensor.variance, :contra)
         permutation_map[A_idx] = B_idx
     end
     for A_index in eachindex(A.covariant)
         B_index = findfirst(x -> x == A.covariant[A_index], B.covariant)
-        A_idx = findindex(A_index, A.tensor.variance, :co)
-        B_idx = findindex(B_index, B.tensor.variance, :co)
+        A_idx = find_nth(A_index, A.tensor.variance, :co)
+        B_idx = find_nth(B_index, B.tensor.variance, :co)
         permutation_map[A_idx] = B_idx
     end
     C = permutedims(B.tensor.data, Tuple(Int.(permutation_map)))
@@ -866,15 +901,21 @@ function self_contract(A::IndexedTensor, duplicates)
 end
 
 """
-Internal. Converts a symbolic index to its index in a tensor's data array.
+Internal. Converts a contra- or covariant symbolic index to its index in a tensor's data array,
 """
-function find_index(target, A::IndexedTensor, variance)
-    space = variance == :contra ? A.contravariant : A.covariant
-    contra_index = findfirst(x -> x == target, space)
-    index = findindex(contra_index, A.tensor.variance, variance)
-    return index
+function find_index(symbolic_index, A::IndexedTensor, variance)
+    search_space = variance == :contra ? A.contravariant : A.covariant
+    space_index = findfirst(x -> x == symbolic_index, search_space)
+    return find_nth(space_index, A.tensor.variance, variance)
 end
 
+"""
+Internal. Converts a contra- or covariant symbolic index to its index in a tensor's data array,
+"""
+function find_nth(n, list, key)
+    key_list = filter(x -> x[2] == key, collect(enumerate(list)))
+    return key_list[n][1]
+end
 
 """
 Internal. Finds symbolic pairs in the contravariant and covariant indices of two tensors A and B.
@@ -931,24 +972,6 @@ function find_pairs(A::IndexedTensor, ε::IndexedLeviCivita)
         push!(pairs, (A_index, ε_index, index, :co))
     end
     return pairs
-end
-
-"""
-Internal. Finds the index of the nth occurrance of key in a list.
-"""
-function findindex(desired_index, variance, key)
-    count = 0
-    var_index = 0
-    for i in eachindex(variance)
-        var_index = i
-        if variance[i] == key
-            count += 1
-        end
-        if count == desired_index
-            break
-        end
-    end
-    return var_index
 end
 
 """
