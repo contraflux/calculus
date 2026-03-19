@@ -25,7 +25,12 @@ getindex() - Einstein convention indexing
 **Geometry**
 metric() - Metric tensor from a basis
 inv() - Invert a (2, 0) or (0, 2)-tensor
+minkowski() - Find the Minkowski norm on two vectors
 christoffel() - Compute the Levi-Civita Connection coefficients
+lie() - Compute the Lie bracket of two vectors
+riemann() - Compute the Riemann Curvature Tensor
+ricci() - Compute the Ricci Curvature Tensor
+ricci_scalar() - Compute the Ricci Scalar
 
 # Examples
 Defining a tensor
