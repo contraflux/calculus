@@ -58,3 +58,14 @@ T = Tensor([[u, -u]', [3v, u + v]']) # A non-constant linear map (1, 1)-tensor
 ∇ = CovariantDerivative(Γ, ∂) # The covariant derivative
 v = Tensor([u^2, v]) # A non-constant vector (1, 0)-tensor
 ∇[:k] * v[:i] # The covariant derivative of v, (1, 1)-tensor
+
+# Lie brackets
+X = Tensor([u^2 + 1, -2v]) # A (1, 0)-tensor
+Y = Tensor([v, 3 - v]) # A (1, 0)-tensor
+lie(X, Y, ∂) # The Lie bracket [X, Y], (1, 0)-tensor
+
+# Riemann and Ricci Curvature Tensors, and the Ricci Scalar
+basis = (Tensor([1, 0]), Tensor([0, sin(v)]))
+riemann((u, v), basis) # The Riemann Curvature Tensor, (1, 3)-tensor
+ricci((u, v), basis) # The Ricci Curvature Tensor, (0, 2)-tensor
+ricci_scalar((u, v), basis) # The Ricci Scalar, (0, 0)-tensor
