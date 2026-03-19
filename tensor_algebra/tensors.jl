@@ -984,7 +984,7 @@ function LinearAlgebra.inv(A::Tensor)
     elseif A.variance[1] != A.variance[2]
         error("Must either a (2, 0) or (0, 2) tensor")
     end
-    mat = eltype(A.data) <: Num ? Matrix{Num}(A.data) : Matrix{Float64}(A.data)
+    mat = eltype(A.data) <: Number && !(eltype(A.data) <: Num) ? Matrix{Num}(A.data) : Matrix{Float64}(A.data)
     if A.variance[1] == :co
         return Tensor(inv(mat), (:contra, :contra))
     else
@@ -1059,4 +1059,86 @@ function christoffel(coordinates, basis)
     T2 = ∂[:j] * g[:r, :k]
     T3 = ∂[:r] * g[:j, :k]
     return (0.5 * G[:l, :r] * (T1 + T2 - T3)).tensor
+end
+
+"""
+Compute the Lie bracket of two (1, 0)-tensors
+
+Returns a (1, 0)-tensor
+
+# Examples
+```
+julia> @variables u, v
+julia> ∂ = PartialDerivative((u, v))
+julia> X = Tensor([u^2 + 1, -2v])
+julia> Y = Tensor([v, 3 - v])
+julia> lie(X, Y, ∂)
+Tensor{Num, 1}(Num[-2v - 2u*v, 2v + 2(3 - v)], (:contra,))
+```
+"""
+function lie(X::Tensor, Y::Tensor, ∂::PartialDerivative)
+    T1 = X[:i] * (∂[:i] * Y[:k])
+    T2 = Y[:i] * (∂[:i] * X[:k])
+    return (T1 - T2).tensor
+end
+
+"""
+Compute the Riemann Curvature Tensor R given a covariant derivative
+
+Returns a (1, 3)-tensor ordered as R^c_abd
+
+# Examples
+```
+julia> @variables θ φ
+julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> riemann((θ, φ), basis)
+Tensor{Num, 4}(Num[...], (:contra, :co, :co, :co))
+```
+"""
+function riemann(coordinates, basis)
+    ∂ = PartialDerivative(coordinates)
+    Γ = christoffel(coordinates, basis)
+    T1 = ∂[:i] * Γ[:l][:j, :k]
+    T2 = ∂[:j] * Γ[:l][:i, :k]
+    T3 = Γ[:l][:i, :m] * Γ[:m][:j, :k]
+    T4 = Γ[:l][:j, :m] * Γ[:m][:i, :k]
+    return (T1 - T2 + T3 - T4).tensor
+end
+
+"""
+Compute the Ricci Curvature Tensor R given a covariant derivative
+
+Returns a (0, 2)-tensor R_ab from the Riemann Curvature Tensor R^c_abd
+
+# Examples
+```
+julia> @variables θ φ
+julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> ricci((θ, φ), basis)
+Tensor{Num, 2}(Num[...], (:co, :co))
+```
+"""
+function ricci(coordinates, basis)
+    R = riemann(coordinates, basis)
+    return R[:i][:j, :k, :i].tensor
+end
+
+"""
+Compute the Ricci Scalar R given a covariant derivative
+
+Returns a scalar R from the trace of the Ricci Curvature Tensor
+
+# Examples
+```
+julia> @variables θ φ
+julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> simplify(ricci_scalar((θ, φ), basis))
+2
+```
+"""
+function ricci_scalar(coordinates, basis, inner_product=⋅)
+    R = ricci(coordinates, basis)
+    g = metric(basis, inner_product)
+    G = inv(g)
+    return G[:i, :j] * R[:i, :j]
 end
