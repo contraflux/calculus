@@ -57,6 +57,7 @@ contraflux
 
 using LinearAlgebra
 using Symbolics
+using Combinatorics
 
 """
 An arbitrary rank R (m, n)-tensor of a type T, where R = m + n
@@ -293,6 +294,25 @@ IndexedCovariantDerivative(CovariantDerivative(Tensor{Num, 3}..., PartialDerivat
 struct IndexedCovariantDerivative
     covariant::CovariantDerivative
     index::Symbol
+end
+
+"""
+Internal. Pretty printing for Tensors
+"""
+function Base.show(io::IO, A::Tensor)
+    m = count(x -> x == :contra, A.variance)
+    n = count(x -> x == :co, A.variance)
+    println(io, "($m, $n)-Tensor:")
+    show(io, A.data)
+    println(io, "\n  $(A.variance)")
+end
+
+"""
+Internal. Pretty printing for IndexedTensors
+"""
+function Base.show(io::IO, A::IndexedTensor)
+    show(io, A.tensor)
+    println(io, "  $(A.contravariant), $(A.covariant)")
 end
 
 """
@@ -739,6 +759,20 @@ function Base.:*(s::Number, A::IndexedTensor)
 end
 
 """
+Divides every element of a tensor A by number s.
+
+# Examples
+```
+julia> A = Tensor([[1, 2]', [3, -1]'])
+julia> A[:i][:j] / 2
+IndexedTensor{Float64, 2, 1, 1}(Tensor{Float64, 2}([0.5 1.0; 1.5 -0.5], (:contra, :co)), (:i,), (:j,))
+```
+"""
+function Base.:/(A::IndexedTensor, s::Number)
+    return (1/s) * A
+end
+
+"""
 Computes the contraction of a tensor and the Kronecker Delta
 
 # Examples
@@ -886,6 +920,20 @@ function Base.:*(∇::IndexedCovariantDerivative, A::IndexedTensor)
 end
 
 """
+Simplifies symbolic expressions within a Tensor
+"""
+function Symbolics.simplify(A::Tensor)
+    return Tensor(simplify.(A.data), A.variance)
+end
+
+"""
+Simplifies symbolic expressions within an IndexedTensor
+"""
+function Symbolics.simplify(A::IndexedTensor)
+    return IndexedTensor(simplify(A.tensor), A.contravariant, A.covariant)
+end
+
+"""
 Internal. Contracts a tensor A along duplicate indices by contracting with the Kronecker Delta δ
 """
 function self_contract(A::IndexedTensor, duplicates)
@@ -989,7 +1037,7 @@ function LinearAlgebra.inv(A::Tensor)
     elseif A.variance[1] != A.variance[2]
         error("Must either a (2, 0) or (0, 2) tensor")
     end
-    mat = eltype(A.data) <: Number && !(eltype(A.data) <: Num) ? Matrix{Num}(A.data) : Matrix{Float64}(A.data)
+    mat = Matrix{Num}(A.data)
     if A.variance[1] == :co
         return Tensor(inv(mat), (:contra, :contra))
     else
@@ -1088,7 +1136,7 @@ function lie(X::Tensor, Y::Tensor, ∂::PartialDerivative)
 end
 
 """
-Compute the Riemann Curvature Tensor R given a covariant derivative
+Compute the Riemann Curvature Tensor R given coordinates and a basis
 
 Returns a (1, 3)-tensor ordered as R^c_abd
 
@@ -1111,7 +1159,7 @@ function riemann(coordinates, basis)
 end
 
 """
-Compute the Ricci Curvature Tensor R given a covariant derivative
+Compute the Ricci Curvature Tensor R given coordinates and a basis
 
 Returns a (0, 2)-tensor R_ab from the Riemann Curvature Tensor R^c_abd
 
@@ -1129,7 +1177,7 @@ function ricci(coordinates, basis)
 end
 
 """
-Compute the Ricci Scalar R given a covariant derivative
+Compute the Ricci Scalar R given coordinates, a basis, and an inner product
 
 Returns a scalar R from the trace of the Ricci Curvature Tensor
 
@@ -1146,4 +1194,115 @@ function ricci_scalar(coordinates, basis, inner_product=⋅)
     g = metric(basis, inner_product)
     G = inv(g)
     return G[:i, :j] * R[:i, :j]
+end
+
+"""
+Compute the Einstein Tensor G given coordinates, a basis, and an inner product
+
+Returns a (0, 2)-tensor G_ab from the Riemann Curvature Tensor R^c_abd
+
+# Examples
+```
+julia> @variables θ φ
+julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> ricci((θ, φ), basis)
+Tensor{Num, 2}(Num[...], (:co, :co))
+```
+"""
+function einstein(coordinates, basis, inner_product=⋅)
+    R = ricci(coordinates, basis)
+    R_scalar = ricci_scalar(coordinates, basis, inner_product)
+    g = metric(basis, inner_product)
+    return (R[:i, :j] - (0.5 * R_scalar * g[:i, :j])).tensor
+end
+
+"""
+Symmetrizes a tensor A across the specified indices
+
+# Examples
+```
+julia> A = Tensor([[1, 3], [-2, 5]])
+julia> symmetrize(A[:i, :j], :i, :j)
+Tensor{Float64, 2}([1.0 0.5; 0.5 5.0], (:co, :co))
+```
+"""
+function symmetrize(A::IndexedTensor, indices...)
+    if !all(x -> x in union(A.contravariant, A.covariant), indices)
+        error("Some indices not found")
+    end
+    if length(indices) < 2
+        error("Need at least 2 indices")
+    end
+    variance = indices[1] in A.contravariant ? :contra : :co
+    for index in indices
+        index_variance = index in A.contravariant ? :contra : :co
+        if index_variance != variance
+            error("Indices not all the same variance")
+        end
+    end
+    if variance == :contra
+        return make_symmetric(A, indices, :contra)
+    end
+    return make_symmetric(A, indices, :co)
+end
+
+"""
+Antisymmetrizes a tensor A across the specified indices
+
+# Examples
+```
+julia> A = Tensor([[1, 3], [-2, 5]])
+julia> antisymmetrize(A[:i, :j], :i, :j)
+Tensor{Float64, 2}([0.0 2.5; -2.5 0.0], (:co, :co))
+```
+"""
+function antisymmetrize(A::IndexedTensor, indices...)
+    if !all(x -> x in union(A.contravariant, A.covariant), indices)
+        error("Some indices not found")
+    end
+    if length(indices) < 2
+        error("Need at least 2 indices")
+    end
+    variance = indices[1] in A.contravariant ? :contra : :co
+    for index in indices
+        index_variance = index in A.contravariant ? :contra : :co
+        if index_variance != variance
+            error("Indices not all the same variance")
+        end
+    end
+    if variance == :contra
+        return make_symmetric(A, indices, :contra, true)
+    end
+    return make_symmetric(A, indices, :co, true)
+end
+
+"""
+Internal. Helper method for symmetric and antisymmetric functions
+"""
+function make_symmetric(A::IndexedTensor, indices, variance, anti=false)
+    id = Matrix(I, length(indices), length(indices))
+    symbols = collect(variance == :contra ? A.contravariant : A.covariant)
+    variables = findall(x -> x in indices, symbols)
+    swaps = []
+    for perm in permutations(indices)
+        for (index, symbol) in zip(variables, perm)
+            symbols[index] = symbol
+        end
+        perm_indices = map(i -> findfirst(x -> x == i, collect(indices)), perm)
+        k = anti ? sign(det(id[perm_indices, :])) : 1
+        if variance == :contra
+            if isempty(A.covariant)
+                push!(swaps, k * A.tensor[symbols...])
+            else
+                push!(swaps, k * A.tensor[symbols...][A.covariant...])
+            end
+        else
+            if isempty(A.covariant)
+                push!(swaps, k * A.tensor[symbols...])
+            else
+                push!(swaps, k * A.tensor[A.contravariant...][symbols...])
+            end
+        end
+    end
+    return (1/length(swaps)) * sum(swaps)
 end
