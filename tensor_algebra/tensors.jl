@@ -11,6 +11,8 @@ KroneckerDelta - The Kronecker Delta δ
 LeviCivita - The Levi-Civita Symbol ε
 PartialDerivative{N} - The partial derivative operator ∂ on N coordinates
 CovariantDerivative - The covariant derivative operator ∇
+ExteriorDerivative - The exterior derivative operator d
+HodgeStar - The Hodge Star operator
 
 # Functions
 **General**
@@ -22,6 +24,7 @@ getindex() - Einstein convention indexing
 + - Tensor addition
 - - Tensor subtraction
 ⋅ - Dot product for (1, 0)-tensors
+∧ - Wedge product for (0, p)-tensors
 **Geometry**
 metric() - Metric tensor from a basis
 inv() - Invert a (2, 0) or (0, 2)-tensor
@@ -31,6 +34,9 @@ lie() - Compute the Lie bracket of two vectors
 riemann() - Compute the Riemann Curvature Tensor
 ricci() - Compute the Ricci Curvature Tensor
 ricci_scalar() - Compute the Ricci Scalar
+einstein() - Compute the Einstein Tensor
+symmetrize() - Symmetrize a tensor
+antisymmetrize - Antisymmetrize a tensor
 
 # Examples
 Defining a tensor
@@ -297,6 +303,79 @@ struct IndexedCovariantDerivative
 end
 
 """
+The Exterior Derivative Operator d
+
+Contracts with tensors as d[:i], generating the exterior derivative across the coordinates indexed by i
+
+# Fields
+partial::PartialDerivative
+    - The partial differentiation operator
+
+# Examples
+```
+julia> @variables x y z
+julia> ∂ = PartialDerivative((x, y, z))
+julia> d = ExteriorDerivative(∂)
+julia> α = Tensor([x^2, y*z, x]')
+julia> d[:k] * α[:i]
+(0, 2)-Tensor:
+Num[0.0 0.0 -1.0; 0.0 0.0 y; 1.0 -y 0.0]
+  (:co, :co)
+```
+"""
+struct ExteriorDerivative
+    partial::PartialDerivative
+end
+
+"""
+The Indexed Exterior Derivative Operator
+
+Returned by getindex(d::ExteriorDerivative, indices...)
+
+# Fields
+exterior::ExteriorDerivative
+    - The underlying exterior derivative
+index::Symbol
+    - The index of the coordinate
+
+# Examples
+```
+julia> @variables x y z
+julia> ∂ = PartialDerivative((x, y, z))
+julia> d = ExteriorDerivative(∂)
+julia> d[:k]
+IndexedExteriorDerivative(ExteriorDerivative(PartialDerivative{3}((x, y, z))), :k)
+```
+"""
+struct IndexedExteriorDerivative
+    exterior::ExteriorDerivative
+    index::Symbol
+end
+
+"""
+The Hodge Star Operator
+
+# Fields
+metric::Tensor
+    - The metric tensor
+
+# Examples
+```
+julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
+julia> α = Tensor([1, 2]')
+julia> g = metric(basis)
+julia> ⋆ = HodgeStar(g)
+julia> ⋆(α)
+(0, 1)-Tensor:
+Num[-2.0, 1.0]
+  (:co,)
+```
+"""
+struct HodgeStar
+    metric::Tensor
+end
+
+"""
 Internal. Pretty printing for Tensors
 """
 function Base.show(io::IO, A::Tensor)
@@ -556,6 +635,25 @@ function Base.getindex(∇::CovariantDerivative, indices...)
 end
 
 """
+Index an Exterior Derivative Operator with symbolic indices.
+
+Returns an IndexedExteriorDerivative for use in Einstein summation via *.
+
+# Arguments
+d::ExteriorDerivative
+    - The Exterior Derivative Operator to index
+
+indices...
+    - The symbolic index
+"""
+function Base.getindex(d::ExteriorDerivative, indices...)
+    if all(isa.(indices, Symbol))
+        return IndexedExteriorDerivative(d, indices[1])
+    end
+    return nothing
+end
+
+"""
 Computes the tensor product of two tensors
 
 Given an (m, n) tensor A and a (p, q) tensor B, returns an (m + p, n + q) tensor
@@ -579,6 +677,35 @@ function ⊗(A::Tensor, B::Tensor)
     b = B.data
     data = [a[i] * b[j] for j in eachindex(b) for i in eachindex(a)]
     return Tensor(reshape(data, size(a)..., size(b)...), (A.variance..., B.variance...))
+end
+
+"""
+Computes the wedge product of two differential forms
+
+Given a (0, p) tensor A and a (0, q) tensor B, returns a (0, p + q) tensor
+
+# Examples
+Two one-forms combined using the wedge product
+```
+julia> α = Tensor([1, -3, 2]'); β = Tensor([2, -3, 1]')
+julia> α ∧ Β
+Tensor{Float64, 3}([0.0 3.0 -3.0; -3.0 0.0 3.0; 3.0 -3.0 0.0], (:co, :co))
+```
+"""
+function ∧(A::Tensor, B::Tensor)
+    if !(all(x -> x == :co, A.variance) && all(x -> x == :co, B.variance))
+        error("Both A and B must be differential forms")
+    end
+    if !(length(unique((size(A.data)..., size(B.data)...))) == 1)
+        error("A and B must have the same dimension")
+    end
+    p = length(A.variance)
+    q = length(B.variance)
+    C = A ⊗ B
+    indices = [Symbol("dummy_$i") for i in eachindex(C.variance)]
+    scalar = factorial(p + q) / (factorial(p) * factorial(q))
+    D = antisymmetrize(C[indices...], indices...)
+    return (scalar * D[indices...]).tensor
 end
 
 """
@@ -920,6 +1047,75 @@ function Base.:*(∇::IndexedCovariantDerivative, A::IndexedTensor)
 end
 
 """
+Computes the exterior derivative of a tensor A with respect to the coordinates of d.
+
+Given a (0, p) tensor A, returns an (0, p+1) tensor.
+
+# Examples
+```
+julia> @variables x y z
+julia> ∂ = PartialDerivative((x, y, z))
+julia> d = ExteriorDerivative(∂)
+julia> α = Tensor([x^2, y*z, x]')
+julia> d[:k] * α[:i]
+(0, 2)-Tensor:
+Num[0.0 0.0 -1.0; 0.0 0.0 y; 1.0 -y 0.0]
+  (:co, :co)
+```
+"""
+function Base.:*(d::IndexedExteriorDerivative, A::IndexedTensor)
+    if !(all(x -> x == :co, A.tensor.variance))
+        error("A must be a differential form")
+    end
+    ∂ = d.exterior.partial
+    B = ∂[d.index] * A
+    indices = [Symbol("dummy_$i") for i in eachindex(B.tensor.variance)]
+    p = length(A.tensor.variance)
+    C = factorial(p + 1) * antisymmetrize(B.tensor[indices...], indices...)[indices...]
+    return C.tensor
+end
+
+"""
+Computes hodge star of a tensor A.
+
+Given a (0, p) tensor A in dimension n, returns a (0, n - p) tensor.
+
+# Examples
+```
+julia> basis = (Tensor([1, 0]), Tensor([0, 1]))
+julia> α = Tensor([1, 2]')
+julia> g = metric(basis)
+julia> ⋆ = HodgeStar(g)
+julia> ⋆(α)
+(0, 1)-Tensor:
+Num[-2.0, 1.0]
+  (:co,)
+```
+"""
+function (hodge::HodgeStar)(A::Tensor)
+    if !(all(x -> x == :co, A.variance))
+        error("A must be a differential form")
+    end
+    g = hodge.metric
+    G = inv(g)
+    det_g = det(g.data)
+    p = length(A.variance)
+    n = size(A.data, 1)
+    ε = LeviCivita()
+    lower_indices = [Symbol("dummy_i$i") for i in 1:p]
+    upper_indices = [Symbol("dummy_j$i") for i in 1:n]
+    B = A[lower_indices...]
+    for i in eachindex(lower_indices)
+        B = B * G[lower_indices[i], upper_indices[i]]
+    end
+    C = B * ε[upper_indices...]
+    if n == p
+        return √(abs(det_g)) * C / factorial(p)
+    end
+    return (√(abs(det_g)) * C / factorial(p)).tensor
+end
+
+"""
 Simplifies symbolic expressions within a Tensor
 """
 function Symbolics.simplify(A::Tensor)
@@ -1205,7 +1401,7 @@ Returns a (0, 2)-tensor G_ab from the Riemann Curvature Tensor R^c_abd
 ```
 julia> @variables θ φ
 julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
-julia> ricci((θ, φ), basis)
+julia> einstein((θ, φ), basis)
 Tensor{Num, 2}(Num[...], (:co, :co))
 ```
 """
@@ -1241,9 +1437,9 @@ function symmetrize(A::IndexedTensor, indices...)
         end
     end
     if variance == :contra
-        return make_symmetric(A, indices, :contra)
+        return make_symmetric(A, indices, :contra).tensor
     end
-    return make_symmetric(A, indices, :co)
+    return make_symmetric(A, indices, :co).tensor
 end
 
 """
@@ -1271,9 +1467,9 @@ function antisymmetrize(A::IndexedTensor, indices...)
         end
     end
     if variance == :contra
-        return make_symmetric(A, indices, :contra, true)
+        return make_symmetric(A, indices, :contra, true).tensor
     end
-    return make_symmetric(A, indices, :co, true)
+    return make_symmetric(A, indices, :co, true).tensor
 end
 
 """
@@ -1297,7 +1493,7 @@ function make_symmetric(A::IndexedTensor, indices, variance, anti=false)
                 push!(swaps, k * A.tensor[symbols...][A.covariant...])
             end
         else
-            if isempty(A.covariant)
+            if isempty(A.contravariant)
                 push!(swaps, k * A.tensor[symbols...])
             else
                 push!(swaps, k * A.tensor[A.contravariant...][symbols...])
