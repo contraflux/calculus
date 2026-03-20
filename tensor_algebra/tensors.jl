@@ -36,7 +36,7 @@ ricci() - Compute the Ricci Curvature Tensor
 ricci_scalar() - Compute the Ricci Scalar
 einstein() - Compute the Einstein Tensor
 symmetrize() - Symmetrize a tensor
-antisymmetrize - Antisymmetrize a tensor
+antisymmetrize() - Antisymmetrize a tensor
 
 # Examples
 Defining a tensor
