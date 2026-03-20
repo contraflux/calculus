@@ -26,6 +26,12 @@ L[:i][:j] * v[:j] # Multiplying a linear map and a vector -> (0, 1)-tensor
 # Combining tensors with the tensor product
 M = v ⊗ ω ⊗ v # Two vectors combined with a covector -> (2, 1)-tensor
 
+# Symmetrizing and antisymmetrizing
+N = Tensor([1, 2]) ⊗ Tensor([-3, 1]) ⊗ Tensor([2, -4]) ⊗ Tensor([-5, -4]') ⊗ Tensor([2, -1]') # (3, 2)-tensor
+symmetrize(N[:i, :j, :k][:l, :m], :i, :k) # Symmetrize across :i and :k
+symmetrize(N[:i, :j, :k][:l, :m], :i, :j, :k) # Symmetrize across :i, :j, and :k
+antisymmetrize(N[:i, :j, :k][:l, :m], :l, :m) # Antisymmetrize across :l, :m
+
 # Basis operations
 basis = (Tensor([1, 1]), Tensor([0, 2])) # A vector basis
 g = metric(basis) # The metric tensor (0, 2)-tensor
@@ -56,8 +62,8 @@ T = Tensor([[u, -u]', [3v, u + v]']) # A non-constant linear map (1, 1)-tensor
 # Covariant derivatives
 Γ = christoffel((u, v), basis) # The Christoffel Symbols for the Levi-Civita Connection
 ∇ = CovariantDerivative(Γ, ∂) # The covariant derivative
-v = Tensor([u^2, v]) # A non-constant vector (1, 0)-tensor
-∇[:k] * v[:i] # The covariant derivative of v, (1, 1)-tensor
+x = Tensor([u^2, v]) # A non-constant vector (1, 0)-tensor
+∇[:k] * x[:i] # The covariant derivative of x, (1, 1)-tensor
 
 # Lie brackets
 X = Tensor([u^2 + 1, -2v]) # A (1, 0)-tensor
@@ -69,3 +75,4 @@ basis = (Tensor([1, 0]), Tensor([0, sin(v)]))
 riemann((u, v), basis) # The Riemann Curvature Tensor, (1, 3)-tensor
 ricci((u, v), basis) # The Ricci Curvature Tensor, (0, 2)-tensor
 ricci_scalar((u, v), basis) # The Ricci Scalar, (0, 0)-tensor
+einstein((u, v), basis) # The Einstein Tensor, (0, 2)-tensor
