@@ -81,10 +81,14 @@ function draw_torus(R=3, r=1)
     cartesian_points = [torus_points(u, v) for u in us, v in vs]
     R_scalar_values = [Float64(Symbolics.unwrap(substitute(R_scalar, Dict(θ=>u, φ=>v)))) for u in us, v in vs]
 
-    coarse_us = us[begin:2:end]
+    coarse_us = us[begin:4:end]
     coarse_vs = vs[begin:2:end]
     grid = [torus_points(u, v) for u in coarse_us, v in coarse_vs]
-    vecs = [substitute(torus_basis[1], Dict(θ=>u, φ=>v)).data for u in coarse_us, v in coarse_vs]
+    vecs = [
+        sin(u/2 + v) * substitute(torus_basis[1], Dict(θ=>u, φ=>v)).data + 
+        cos(3v - 2) * substitute(torus_basis[2], Dict(θ=>u, φ=>v)).data 
+        for u in coarse_us, v in coarse_vs
+    ]
 
     plot_shape(cartesian_points, R_scalar_values, geodesic_points, (grid, vecs))
 end
@@ -170,8 +174,8 @@ function plot_shape(points, scalar_field, geodesic_points=[], vector_field=())
     if !isempty(vector_field)
         grid = vec([Point3f(x) for x in vector_field[1]])
         vecs = vec([Vec3f(v) for v in vector_field[2]])
-        lengths = [norm(v) for v in vector_field[2]]
-        arrows!(ax, grid, vecs, color=lengths, colormap=:magma, arrowsize=0.05, lengthscale=0.1)
+        lengths = vec([norm(v) for v in vector_field[2]])
+        arrows!(ax, grid, vecs, color=lengths, colormap=:magma, arrowsize=0.025, lengthscale=0.05)
     end
 
     display(fig)
