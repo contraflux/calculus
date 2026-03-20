@@ -1130,6 +1130,14 @@ function Symbolics.simplify(A::IndexedTensor)
 end
 
 """
+Substitutes symbolic expressions within a Tensor
+"""
+function Symbolics.substitute(A::Tensor, dict)
+    a = [Float64(Symbolics.unwrap(substitute(A.data[i], dict))) for i in eachindex(A.data)]
+    return Tensor(reshape(a, size(A.data)), A.variance)
+end
+
+"""
 Internal. Contracts a tensor A along duplicate indices by contracting with the Kronecker Delta δ
 """
 function self_contract(A::IndexedTensor, duplicates)
