@@ -105,20 +105,14 @@ function plot_geodesic!(ax, Γ, u0, tspan)
     plot_line!(ax, geodesic_points)
 end
 
-function plot_vectors!(ax, grid, vecs)
+function plot_vectors!(ax, grid, vecs; lengthscale=1, arrowscale=1, normalize=false)
     grid = vec([Point3f(x) for x in grid])
     vecs = vec([Vec3f(v) for v in vecs])
     lengths = vec([norm(v) for v in vecs])
-    arrows!(ax, grid, vecs, color=lengths, colormap=:magma, arrowsize=0.025, lengthscale=0.1)
+    arrows!(ax, grid, vecs, color=lengths, colormap=:magma, arrowsize=arrowscale, lengthscale=lengthscale, normalize=normalize)
 end
 
 @variables θ φ
-
-set_theme!(theme_dark())
-fig = Figure(size=(700, 500), fxaa=true)
-ax = Axis3(fig[1,1], aspect=:data)
-ax.title = "Ricci Scalar Curvature"
-hidespines!(ax)
 
 points, basis, (us, vs), Γ, R_scalar = get_klein(θ, φ)
 
@@ -134,17 +128,31 @@ tspan = (0.0, 5.0)
 coarse_us = us[begin:2:end]
 coarse_vs = vs[begin:2:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
-vecs = [
+vecs1 = [
     substitute((
-        sin(v) * basis[1][:i] + 
-        cos(u) * basis[2][:i]
+        1 * basis[1][:i] + 
+        0 * basis[2][:i]
+    ).tensor, Dict(θ=>u, φ=>v)).data
+    for u in coarse_us, v in coarse_vs
+]
+vecs2 = [
+    substitute((
+        0 * basis[1][:i] + 
+        1 * basis[2][:i]
     ).tensor, Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
 
+set_theme!(theme_dark())
+fig = Figure(size=(700, 500), fxaa=true)
+ax = Axis3(fig[1,1], aspect=:data)
+ax.title = "Ricci Scalar Curvature"
+hidespines!(ax)
+
 s = plot_surface!(ax, cartesian_points, scalar_field)
 Colorbar(fig[1,2], s)
-plot_geodesic!(ax, Γ, u0, tspan)
-plot_vectors!(ax, grid, vecs)
+# plot_geodesic!(ax, Γ, u0, tspan)
+plot_vectors!(ax, grid, vecs1, lengthscale=0.05, arrowscale=0.015, normalize=true)
+plot_vectors!(ax, grid, vecs2, lengthscale=0.05, arrowscale=0.015, normalize=true)
 
 display(fig)
