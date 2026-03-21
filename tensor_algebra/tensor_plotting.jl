@@ -98,6 +98,13 @@ function plot_line!(ax, points)
     lines!(ax, xs, ys, zs, color=:lightblue, linewidth=2)
 end
 
+function plot_geodesic!(ax, Γ, u0, tspan)
+    probem = ODEProblem((du, u, p, t) -> geodesic!(Γ, du, u, p, t), u0, tspan)
+    solution = solve(problem, abstol=1e-10, reltol=1e-10)
+    geodesic_points = [points(u_t[1], u_t[2]) for u_t in solution.u]
+    plot_line!(ax, geodesic_points)
+end
+
 function plot_vectors!(ax, grid, vecs)
     grid = vec([Point3f(x) for x in grid])
     vecs = vec([Vec3f(v) for v in vecs])
@@ -119,12 +126,9 @@ points, basis, (us, vs), Γ, R_scalar = get_klein(θ, φ)
 cartesian_points = [points(u, v) for u in us, v in vs]
 scalar_field = [Float64(Symbolics.unwrap(substitute(R_scalar, Dict(θ=>u, φ=>v)))) for u in us, v in vs]
 
-# Geodesic
+# Geodesic conditions
 u0 = [π/2, 0.0, 1.0, -1.0]
 tspan = (0.0, 5.0)
-probem = ODEProblem((du, u, p, t) -> geodesic!(Γ, du, u, p, t), u0, tspan)
-solution = solve(prob, abstol=1e-10, reltol=1e-10)
-geodesic_points = [points(u_t[1], u_t[2]) for u_t in solution.u]
 
 # Vector field
 coarse_us = us[begin:2:end]
@@ -140,7 +144,7 @@ vecs = [
 
 s = plot_surface!(ax, cartesian_points, scalar_field)
 Colorbar(fig[1,2], s)
-plot_line!(ax, geodesic_points)
+plot_geodesic!(ax, Γ, u0, tspan)
 plot_vectors!(ax, grid, vecs)
 
 display(fig)
