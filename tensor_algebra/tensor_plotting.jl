@@ -17,9 +17,11 @@ function get_sphere(θ, φ)
     vs = range(0, 2π, 50)
 
     Γ = christoffel((θ, φ), basis)
+    ∂ = PartialDerivative((θ, φ))
+    ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, R_scalar
+    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
 end
 
 function get_torus(θ, φ, R=3, r=1)
@@ -36,9 +38,11 @@ function get_torus(θ, φ, R=3, r=1)
     vs = range(0, 2π, 50)
 
     Γ = christoffel((θ, φ), basis)
+    ∂ = PartialDerivative((θ, φ))
+    ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, R_scalar
+    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
 end
 
 function get_klein(θ, φ, r=3)
@@ -58,7 +62,7 @@ function get_klein(θ, φ, r=3)
         Tensor([
             (cos(θ/2)*cos(φ) - 2*sin(θ/2)*cos(2φ)) * cos(θ),
             (cos(θ/2)*cos(φ) - 2*sin(θ/2)*cos(2φ)) * sin(θ),
-            sin(θ/2)*cos(φ) - 2*cos(θ/2)*cos(2φ)
+            sin(θ/2)*cos(φ) + 2*cos(θ/2)*cos(2φ)
         ])
     ]
 
@@ -66,9 +70,11 @@ function get_klein(θ, φ, r=3)
     vs = range(0, 2π, 50)
 
     Γ = christoffel((θ, φ), basis)
+    ∂ = PartialDerivative((θ, φ))
+    ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, R_scalar
+    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
 end
 
 function geodesic!(Γ, du, u, p, t)
@@ -81,10 +87,15 @@ function geodesic!(Γ, du, u, p, t)
     du[4] = -sum([Γ_num[2][i,j] * u[2+i] * u[2+j] for i in 1:2, j in 1:2])
 end
 
-function plot_surface!(ax, points, values)
+function plot_surface!(ax, points, values=nothing)
     x = [p[1] for p in points]
     y = [p[2] for p in points]
     z = [p[3] for p in points]
+    if isnothing(values)
+        wireframe!(ax, x, y, z, color=:white, linewidth=0.25, alpha=0.5)
+        s = surface!(ax, x, y, z, colormap=[:grey, :grey])
+        return s
+    end
     color_limit = maximum(abs.(values))
     wireframe!(ax, x, y, z, color=:white, linewidth=0.25, alpha=0.5)
     s = surface!(ax, x, y, z, color=values, colormap=:RdBu, colorrange=(-color_limit, color_limit))
@@ -98,23 +109,23 @@ function plot_line!(ax, points)
     lines!(ax, xs, ys, zs, color=:lightblue, linewidth=2)
 end
 
-function plot_geodesic!(ax, Γ, u0, tspan)
-    probem = ODEProblem((du, u, p, t) -> geodesic!(Γ, du, u, p, t), u0, tspan)
+function plot_geodesic!(ax, points, Γ, u0, tspan)
+    problem = ODEProblem((du, u, p, t) -> geodesic!(Γ, du, u, p, t), u0, tspan)
     solution = solve(problem, abstol=1e-10, reltol=1e-10)
     geodesic_points = [points(u_t[1], u_t[2]) for u_t in solution.u]
     plot_line!(ax, geodesic_points)
 end
 
-function plot_vectors!(ax, grid, vecs; lengthscale=1, arrowscale=1, normalize=false)
+function plot_vectors!(ax, grid, vecs; lengthscale=1, arrowscale=1, colormap=:viridis, normalize=false)
     grid = vec([Point3f(x) for x in grid])
     vecs = vec([Vec3f(v) for v in vecs])
     lengths = vec([norm(v) for v in vecs])
-    arrows!(ax, grid, vecs, color=lengths, colormap=:magma, arrowsize=arrowscale, lengthscale=lengthscale, normalize=normalize)
+    arrows!(ax, grid, vecs, color=lengths, colormap=colormap, arrowsize=arrowscale, lengthscale=lengthscale, normalize=normalize)
 end
 
 @variables θ φ
 
-points, basis, (us, vs), Γ, R_scalar = get_klein(θ, φ)
+points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_klein(θ, φ)
 
 # Surface points
 cartesian_points = [points(u, v) for u in us, v in vs]
@@ -128,17 +139,13 @@ tspan = (0.0, 5.0)
 coarse_us = us[begin:2:end]
 coarse_vs = vs[begin:2:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
-vecs1 = [
+X = Tensor([0, sin(φ)])
+div_X = ∇[:i] * X[:i]
+div_X_values = [Float64(Symbolics.unwrap(substitute(div_X, Dict(θ=>u, φ=>v)))) for u in us, v in vs]
+vecs = [
     substitute((
-        1 * basis[1][:i] + 
-        0 * basis[2][:i]
-    ).tensor, Dict(θ=>u, φ=>v)).data
-    for u in coarse_us, v in coarse_vs
-]
-vecs2 = [
-    substitute((
-        0 * basis[1][:i] + 
-        1 * basis[2][:i]
+        X.data[1] * basis[1][:i] + 
+        X.data[2] * basis[2][:i]
     ).tensor, Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
@@ -146,13 +153,12 @@ vecs2 = [
 set_theme!(theme_dark())
 fig = Figure(size=(700, 500), fxaa=true)
 ax = Axis3(fig[1,1], aspect=:data)
-ax.title = "Ricci Scalar Curvature"
+ax.title = "Divergence Plot"
 hidespines!(ax)
 
-s = plot_surface!(ax, cartesian_points, scalar_field)
+s = plot_surface!(ax, cartesian_points, div_X_values)
 Colorbar(fig[1,2], s)
-# plot_geodesic!(ax, Γ, u0, tspan)
-plot_vectors!(ax, grid, vecs1, lengthscale=0.05, arrowscale=0.015, normalize=true)
-plot_vectors!(ax, grid, vecs2, lengthscale=0.05, arrowscale=0.015, normalize=true)
+# plot_geodesic!(ax, points, Γ, u0, tspan)
+plot_vectors!(ax, grid, vecs, lengthscale=0.05, arrowscale=0.015, colormap=:magma, normalize=true)
 
 display(fig)
