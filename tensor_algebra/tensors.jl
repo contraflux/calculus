@@ -1278,8 +1278,23 @@ end
 Substitutes symbolic expressions within a Tensor
 """
 function Symbolics.substitute(A::Tensor, dict)
-    a = [Float64(Symbolics.unwrap(substitute(A.data[i], dict))) for i in eachindex(A.data)]
+    a = substitute.(A.data, Ref(dict))
+    return Tensor(a, A.variance)
+end
+
+"""
+Evaluates symbolic expressions within a Tensor
+"""
+function evaluate(A::Tensor, dict)
+    a = [Float64(Symbolics.unwrap(substitute(expr, dict))) for expr in A.data]
     return Tensor(reshape(a, size(A.data)), A.variance)
+end
+
+"""
+Evaluates symbolic expressions within a scalar
+"""
+function evaluate(x::Num, dict)
+    return Float64(Symbolics.unwrap(simplify(substitute(x, dict))))
 end
 
 """

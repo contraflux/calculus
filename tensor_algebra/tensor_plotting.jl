@@ -80,7 +80,7 @@ end
 function geodesic!(Γ, du, u, p, t)
     # u = [θ, φ, vθ, vφ]
     # du = derivatives of u
-    Γ_num = substitute(Γ, Dict(θ=>u[1], φ=>u[2]))
+    Γ_num = evaluate(Γ, Dict(θ=>u[1], φ=>u[2]))
     du[1] = u[3]
     du[2] = u[4]
     du[3] = -sum([Γ_num[1][i,j] * u[2+i] * u[2+j] for i in 1:2, j in 1:2])
@@ -129,7 +129,7 @@ points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_sphere(θ, φ)
 
 # Surface points
 cartesian_points = [points(u, v) for u in us, v in vs]
-scalar_field = [Float64(Symbolics.unwrap(substitute(R_scalar, Dict(θ=>u, φ=>v)))) for u in us, v in vs]
+scalar_field = [evaluate(R_scalar, Dict(θ=>u, φ=>v)) for u in us, v in vs]
 
 # Geodesic conditions
 u0 = [π/2, 0.0, 1.0, -1.0]
@@ -139,13 +139,11 @@ tspan = (0.0, 5.0)
 coarse_us = us[begin:2:end]
 coarse_vs = vs[begin:2:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
-X = Tensor([1, 1])
+X = Tensor([sin(θ), cos(φ)])
 div_X = ∇[:i] * X[:i]
-div_X_values = [Float64(Symbolics.unwrap(substitute(div_X, Dict(θ=>u, φ=>v)))) for u in us, v in vs]
+div_X_values = [evaluate(div_X, Dict(θ=>u, φ=>v)) for u in us, v in vs]
 vecs = [
-    substitute(
-        X[:i] * basis[:i]
-    , Dict(θ=>u, φ=>v)).data
+    evaluate(X[:i] * basis[:i], Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
 
