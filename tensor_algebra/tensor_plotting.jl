@@ -8,10 +8,10 @@ function get_sphere(θ, φ)
         return [sin(u)cos(v), sin(u)sin(v), cos(u)]
     end
 
-    basis = [
+    basis = Basis([
         Tensor([cos(θ)cos(φ), cos(θ)sin(φ), -sin(θ)]),
         Tensor([-sin(θ)sin(φ), sin(θ)cos(φ), 0])
-    ]
+    ])
     
     us = range(1e-2, π - 1e-2, 50)
     vs = range(0, 2π, 50)
@@ -29,10 +29,10 @@ function get_torus(θ, φ, R=3, r=1)
         return [(R + r * cos(u)) * cos(v), (R + r * cos(u)) * sin(v), r * sin(u)]
     end
 
-    basis = [
+    basis = Basis([
         Tensor([-r * sin(θ) * cos(φ), -r * sin(θ) * sin(φ), r * cos(θ)]),
         Tensor([-(R + r * cos(θ)) * sin(φ), (R + r * cos(θ)) * cos(φ), 0])
-    ]
+    ])
 
     us = range(0, 2π, 50)
     vs = range(0, 2π, 50)
@@ -42,12 +42,7 @@ function get_torus(θ, φ, R=3, r=1)
     ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    b = Basis([
-        Tensor([-r * sin(θ) * cos(φ), -r * sin(θ) * sin(φ), r * cos(θ)]'),
-        Tensor([-(R + r * cos(θ)) * sin(φ), (R + r * cos(θ)) * cos(φ), 0]')
-    ])
-
-    return points, b, (us, vs), Γ, ∂, ∇, R_scalar
+    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
 end
 
 function get_klein(θ, φ, r=3)
@@ -58,7 +53,7 @@ function get_klein(θ, φ, r=3)
         return [x, y, z]
     end
 
-    basis = [
+    basis = Basis([
         Tensor([
             (-sin(θ/2)/2 * sin(φ) - cos(θ/2)/2 * sin(2φ)) * cos(θ) - (r + cos(θ/2)*sin(φ) - sin(θ/2)*sin(2φ))*sin(θ),
             (-sin(θ/2)/2 * sin(φ) - cos(θ/2)/2 * sin(2φ)) * sin(θ) + (r + cos(θ/2)*sin(φ) - sin(θ/2)*sin(2φ))*cos(θ),
@@ -69,7 +64,7 @@ function get_klein(θ, φ, r=3)
             (cos(θ/2)*cos(φ) - 2*sin(θ/2)*cos(2φ)) * sin(θ),
             sin(θ/2)*cos(φ) + 2*cos(θ/2)*cos(2φ)
         ])
-    ]
+    ])
 
     us = range(0, 2π, 50)
     vs = range(0, 2π, 50)
@@ -130,7 +125,7 @@ end
 
 @variables θ φ
 
-points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_torus(θ, φ)
+points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_sphere(θ, φ)
 
 # Surface points
 cartesian_points = [points(u, v) for u in us, v in vs]
