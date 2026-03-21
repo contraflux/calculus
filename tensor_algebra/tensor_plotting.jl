@@ -42,7 +42,12 @@ function get_torus(θ, φ, R=3, r=1)
     ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
+    b = Basis([
+        Tensor([-r * sin(θ) * cos(φ), -r * sin(θ) * sin(φ), r * cos(θ)]'),
+        Tensor([-(R + r * cos(θ)) * sin(φ), (R + r * cos(θ)) * cos(φ), 0]')
+    ])
+
+    return points, b, (us, vs), Γ, ∂, ∇, R_scalar
 end
 
 function get_klein(θ, φ, r=3)
@@ -125,7 +130,7 @@ end
 
 @variables θ φ
 
-points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_klein(θ, φ)
+points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_torus(θ, φ)
 
 # Surface points
 cartesian_points = [points(u, v) for u in us, v in vs]
@@ -139,14 +144,13 @@ tspan = (0.0, 5.0)
 coarse_us = us[begin:2:end]
 coarse_vs = vs[begin:2:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
-X = Tensor([0, sin(φ)])
+X = Tensor([1, 1])
 div_X = ∇[:i] * X[:i]
 div_X_values = [Float64(Symbolics.unwrap(substitute(div_X, Dict(θ=>u, φ=>v)))) for u in us, v in vs]
 vecs = [
-    substitute((
-        X.data[1] * basis[1][:i] + 
-        X.data[2] * basis[2][:i]
-    ).tensor, Dict(θ=>u, φ=>v)).data
+    substitute(
+        X[:i] * basis[:i]
+    , Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
 
