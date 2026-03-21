@@ -378,30 +378,43 @@ end
 """
 A Tensor Basis
 
-Contracts with tensor components as basis[:i]
 
 # Fields
-vector::Vector{Tensor}
-    - The list of basis Tensors
+elements::Array
+    - The basis tensors
+variance::Tuple
+    - The variance of the tensors
+
+# Examples
+```
+julia> e = Basis([Tensor([1, 0]), Tensor([0, 1])])
+```
 """
 struct Basis
-    vector::Vector{Tensor}
+    elements::Array
+    variance::Tuple
 end
 
 """
 An Indexed Tensor Basis
 
-Contracts with tensor components as basis[:i]
+Returned by getindex(e::Basis, indices...)
 
 # Fields
 basis::Basis
     - The underlying basis
-index::Symbol
-    - The index of the basis tensor
+indices::Tuple
+    - The symbolic indices
+
+# Examples
+```
+julia> e = Basis([Tensor([1, 0]), Tensor([0, 1])])
+julia> e[:i]
+```
 """
 struct IndexedBasis
     basis::Basis
-    index::Symbol
+    indices::Tuple
 end
 
 """
@@ -455,6 +468,22 @@ function Tensor(data)
     cleaned_data = clean_data(data)
     permuted_data = permutedims(cleaned_data, Tuple([i for i in length(variance):-1:1]))
     return Tensor(permuted_data, Tuple(variance))
+end
+
+"""
+Wrapper to create a tensor basis
+
+# Examples
+```
+julia> e = Basis([Tensor([1, 0]), Tensor([0, 1])])
+```
+"""
+function Basis(elements)
+    variance = elements[1].variance
+    if !all(T -> T.variance == variance, elements)
+        error("Basis elements must have the same variance")
+    end
+    return Basis(elements, variance)
 end
 
 """
@@ -684,22 +713,28 @@ end
 
 """
 Index a Basis with either integer or symbolic indices.
-If given integer indices, return the ith basis Tensor.
+If given integer indices, returns the basis tensor associated with those indices.
 If given symbolic indices, returns an IndexedBasis for use in Einstein summation via *.
 
 # Arguments
-basis::Basis
+e::Basis
     - The Basis to index
 
 indices...
-    - The integer or symbolic index
+    - The integer or symbolic indices
+
+# Examples
+```
+julia> e = Basis([Tensor([1, 0]), Tensor([0, 1])])
+julia> e[:i]
+julia> e[2]
+```
 """
-function Base.getindex(basis::Basis, indices...)
-    index = indices[1]
-    if index isa Symbol
-        return IndexedBasis(basis, index)
+function Base.getindex(e::Basis, indices...)
+    if all(isa.(indices, Symbol))
+        return IndexedBasis(e, Tuple(indices))
     end
-    return basis.vector[index]
+    return e.elements[indices...]
 end
 
 """
@@ -755,6 +790,26 @@ function ∧(A::Tensor, B::Tensor)
     scalar = factorial(p + q) / (factorial(p) * factorial(q))
     D = antisymmetrize(C[indices...], indices...)
     return (scalar * D[indices...]).tensor
+end
+
+"""
+Computes the tensor product of two bases
+
+Given an (m, n) basis e and a (p, q) basis f, returns an (m + p, n + q) basis by taking the tensor
+product of every pair of basis tensors
+
+# Examples
+```
+julia> e = Basis([Tensor([1, 0]), Tensor([0, 1])])
+julia> ϵ = Basis([Tensor([1, 0]'), Tensor([0, 1]')])
+julia> e ⊗ ϵ
+```
+"""
+function ⊗(e::Basis, f::Basis)
+    ei = e.elements
+    fi = f.elements
+    eij = [ei[i] ⊗ fi[j] for i in eachindex(ei) for j in eachindex(fi)]
+    return Basis(eij, (e.variance..., f.variance...))
 end
 
 """
@@ -1125,24 +1180,40 @@ function Base.:*(d::IndexedExteriorDerivative, A::IndexedTensor)
 end
 
 """
-Contracts a basis with tensor components.
+Computes the contraction of a tensor A with a basis e
+
+Returns a linear combination of the basis tensors in e using the entries of A as weights
+
+# Examples
+A vector expressed as a linear combination of basis vectors
+```
+julia> e = Basis([Tensor([1, 0]), Tensor([0, 1])])
+julia> v = Tensor([2, 5])
+julia> v[:i] * e[:i]
+```
+A (1, 1)-tensor expressed as a linear combination of basis (1, 1)-tensors
+```
+julia> ϵ = Basis([Tensor([1, 0]'), Tensor([0, 1]')])
+julia> L = e ⊗ ϵ
+julia> M = Tensor([[2, -3]', [4, -1]'])
+julia> M[:i][:j] * L[:i, :j]
+```
 """
 function Base.:*(A::IndexedTensor, e::IndexedBasis)
-    println(A.tensor.variance)
-    println(e.basis.vector[1].variance)
-    if all(x -> x == :contra, A.tensor.variance)
-        if all(x -> x == :contra, e.basis.vector[1].variance)
-            error("Basis must be covariant for contravariant components")
-        end
-        T = sum(A.tensor.data[i] * e.basis.vector[i][:j] for i in eachindex(e.basis.vector))
-        return Tensor(T.tensor.data, (:contra,))
-    elseif all(x -> x == :co, A.tensor.variance)
-        if all(x -> x == :co, e.basis.vector[1].variance)
-            error("Basis must be contravariant for covariant components")
-        end
-        T = sum(A.tensor.data[i] * e.basis.vector[i][:j] for i in eachindex(e.basis.vector))
-        return Tensor(T.tensor.data, (:co,))
+    if A.tensor.variance != e.basis.variance
+        error("Basis must have the same variance")
     end
+    if Set(e.indices) != Set(union(A.contravariant, A.covariant))
+        error("Free indices not allowed")
+    end
+    if isempty(A.contravariant)
+        T = sum([A.tensor.data[i] * e.basis.elements[i][A.covariant...] for i in eachindex(e.basis.elements)])
+    elseif isempty(A.covariant)
+        T = sum([A.tensor.data[i] * e.basis.elements[i][A.contravariant...] for i in eachindex(e.basis.elements)])
+    else
+        T = sum([A.tensor.data[i] * e.basis.elements[i][A.contravariant...][A.covariant...] for i in eachindex(e.basis.elements)])
+    end
+    return T.tensor
 end
 
 function Base.:*(e::IndexedBasis, A::IndexedTensor)
@@ -1330,7 +1401,7 @@ Define the standard inner product on two (1, 0) tensors.
 ```
 julia> v = Tensor([1, 2]); w = Tensor([3, -1])
 Tensor{Int64, 1}([3, -1], (:contra,))
-julia> v ⋅ w
+julia> v[:i] ⋅ w[:i]
 1
 ```
 """
@@ -1364,8 +1435,11 @@ julia> g = metric(basis)
 Tensor{Int64, 2}([5 1; 1 10], (:co, :co))
 ```
 """
-function metric(basis, inner_product=⋅)
-    g = [inner_product(basis[i], basis[j]) for i in eachindex(basis), j in eachindex(basis)]
+function metric(e::Basis, inner_product=⋅)
+    if e.variance != (:contra,)
+        error("Must be a vector basis")
+    end
+    g = [inner_product(e.elements[i], e.elements[j]) for i in eachindex(e.elements), j in eachindex(e.elements)]
     return Tensor(g, (:co, :co,))
 end
 
@@ -1377,7 +1451,7 @@ Returns a (1, 2)-tensor containing the connection coefficients
 # Examples
 ```
 julia> @variables u v
-julia> basis = (Tensor([u, 0]), Tensor([0, v]))
+julia> basis = Basis([Tensor([u, 0]), Tensor([0, v])])
 julia> christoffel((u, v), basis)
 IndexedTensor{Num, 3, 1, 2}(Tensor{Num, 3}..., (:l,), (:j, :k))
 ```
@@ -1421,7 +1495,7 @@ Returns a (1, 3)-tensor ordered as R^c_abd
 # Examples
 ```
 julia> @variables θ φ
-julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> basis = Basis([Tensor([1, 0]), Tensor([0, sin(θ)])])
 julia> riemann((θ, φ), basis)
 Tensor{Num, 4}(Num[...], (:contra, :co, :co, :co))
 ```
@@ -1444,7 +1518,7 @@ Returns a (0, 2)-tensor R_ab from the Riemann Curvature Tensor R^c_abd
 # Examples
 ```
 julia> @variables θ φ
-julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> basis = Basis([Tensor([1, 0]), Tensor([0, sin(θ)])])
 julia> ricci((θ, φ), basis)
 Tensor{Num, 2}(Num[...], (:co, :co))
 ```
@@ -1462,7 +1536,7 @@ Returns a scalar R from the trace of the Ricci Curvature Tensor
 # Examples
 ```
 julia> @variables θ φ
-julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> basis = Basis([Tensor([1, 0]), Tensor([0, sin(θ)])])
 julia> simplify(ricci_scalar((θ, φ), basis))
 2
 ```
@@ -1482,7 +1556,7 @@ Returns a (0, 2)-tensor G_ab from the Riemann Curvature Tensor R^c_abd
 # Examples
 ```
 julia> @variables θ φ
-julia> basis = (Tensor([1, 0]), Tensor([0, sin(θ)]))
+julia> basis = Basis([Tensor([1, 0]), Tensor([0, sin(θ)])])
 julia> einstein((θ, φ), basis)
 Tensor{Num, 2}(Num[...], (:co, :co))
 ```
