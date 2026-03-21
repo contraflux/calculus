@@ -376,6 +376,35 @@ struct HodgeStar
 end
 
 """
+A Tensor Basis
+
+Contracts with tensor components as basis[:i]
+
+# Fields
+vector::Vector{Tensor}
+    - The list of basis Tensors
+"""
+struct Basis
+    vector::Vector{Tensor}
+end
+
+"""
+An Indexed Tensor Basis
+
+Contracts with tensor components as basis[:i]
+
+# Fields
+basis::Basis
+    - The underlying basis
+index::Symbol
+    - The index of the basis tensor
+"""
+struct IndexedBasis
+    basis::Basis
+    index::Symbol
+end
+
+"""
 Internal. Pretty printing for Tensors
 """
 function Base.show(io::IO, A::Tensor)
@@ -651,6 +680,26 @@ function Base.getindex(d::ExteriorDerivative, indices...)
         return IndexedExteriorDerivative(d, indices[1])
     end
     return nothing
+end
+
+"""
+Index a Basis with either integer or symbolic indices.
+If given integer indices, return the ith basis Tensor.
+If given symbolic indices, returns an IndexedBasis for use in Einstein summation via *.
+
+# Arguments
+basis::Basis
+    - The Basis to index
+
+indices...
+    - The integer or symbolic index
+"""
+function Base.getindex(basis::Basis, indices...)
+    index = indices[1]
+    if index isa Symbol
+        return IndexedBasis(basis, index)
+    end
+    return basis.vector[index]
 end
 
 """
@@ -1073,6 +1122,31 @@ function Base.:*(d::IndexedExteriorDerivative, A::IndexedTensor)
     p = length(A.tensor.variance)
     C = factorial(p + 1) * antisymmetrize(B.tensor[indices...], indices...)[indices...]
     return C.tensor
+end
+
+"""
+Contracts a basis with tensor components.
+"""
+function Base.:*(A::IndexedTensor, e::IndexedBasis)
+    println(A.tensor.variance)
+    println(e.basis.vector[1].variance)
+    if all(x -> x == :contra, A.tensor.variance)
+        if all(x -> x == :contra, e.basis.vector[1].variance)
+            error("Basis must be covariant for contravariant components")
+        end
+        T = sum(A.tensor.data[i] * e.basis.vector[i][:j] for i in eachindex(e.basis.vector))
+        return Tensor(T.tensor.data, (:contra,))
+    elseif all(x -> x == :co, A.tensor.variance)
+        if all(x -> x == :co, e.basis.vector[1].variance)
+            error("Basis must be contravariant for covariant components")
+        end
+        T = sum(A.tensor.data[i] * e.basis.vector[i][:j] for i in eachindex(e.basis.vector))
+        return Tensor(T.tensor.data, (:co,))
+    end
+end
+
+function Base.:*(e::IndexedBasis, A::IndexedTensor)
+    return A * e
 end
 
 """
