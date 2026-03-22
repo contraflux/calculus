@@ -17,12 +17,13 @@ function get_sphere(θ, φ)
     us = range(1e-2, π - 1e-2, 50)
     vs = range(0, 2π, 50)
 
+    g = metric(basis)
     Γ = christoffel((θ, φ), basis)
     ∂ = PartialDerivative((θ, φ))
     ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
+    return points, basis, (us, vs), g, Γ, ∂, ∇, R_scalar
 end
 
 function get_torus(θ, φ, R=3, r=1)
@@ -38,12 +39,13 @@ function get_torus(θ, φ, R=3, r=1)
     us = range(0, 2π, 51)
     vs = range(0, 2π, 50)
 
+    g = metric(basis)
     Γ = christoffel((θ, φ), basis)
     ∂ = PartialDerivative((θ, φ))
     ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
+    return points, basis, (us, vs), g, Γ, ∂, ∇, R_scalar
 end
 
 function get_klein(θ, φ, r=3)
@@ -70,12 +72,13 @@ function get_klein(θ, φ, r=3)
     us = range(0, 2π, 50)
     vs = range(0, 2π, 50)
 
+    g = metric(basis)
     Γ = christoffel((θ, φ), basis)
     ∂ = PartialDerivative((θ, φ))
     ∇ = CovariantDerivative(Γ, ∂)
     R_scalar = ricci_scalar((θ, φ), basis)
 
-    return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
+    return points, basis, (us, vs), g, Γ, ∂, ∇, R_scalar
 end
 
 function get_normal(basis, u, v)
@@ -192,7 +195,8 @@ function plot_form!(ax, points, ω, us, vs; inward=false, tspan=10.0, n_seeds=10
         prev_pt = nothing
         for u_t in sol.u
             wu, wv = wrap(u_t[1], u_t[2])
-            k = inward ? -1 : 1
+            # k = inward ? -1 : 1
+            k = 0
             pt = points(wu, wv) + offset * k * get_normal(basis, wu, wv)
             if prev_pt !== nothing && norm(pt - prev_pt) > 0.5
                 push!(curve, nothing)
@@ -266,7 +270,8 @@ end
 
 @variables θ φ
 
-points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_torus(θ, φ)
+points, basis, (us, vs), g, Γ, ∂, ∇, R_scalar = get_klein(θ, φ)
+G = inv(g)
 
 # Surface points
 cartesian_points = [points(u, v) for u in us, v in vs]
@@ -280,29 +285,30 @@ tspan = (0.0, 5.0)
 coarse_us = us[begin:2:end]
 coarse_vs = vs[begin:1:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
-X = Tensor([1, sin(φ)])
+# X = Tensor([1, sin(φ)])
+ω = Tensor([1, sin(φ)]')
+X = (ω[:i] * G[:i, :j]).tensor
 div_X = ∇[:i] * X[:i]
 div_X_values = [evaluate(div_X, Dict(θ=>u, φ=>v)) for u in us, v in vs]
 vecs = [
     evaluate(X[:i] * basis[:i], Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
-ω = Tensor([1, sin(φ)]')
 
 set_theme!(theme_dark())
 fig = Figure(size=(700, 500), fxaa=true)
 ax = Axis3(fig[1,1], aspect=:data)
-ax.title = "Vector and Covector Fields"
+ax.title = "Index Raising (Covector to Vector)"
 hidespines!(ax)
 
 s = plot_surface!(ax, cartesian_points)
 # Colorbar(fig[1,2], s)
 # plot_geodesic!(ax, points, (u, v) -> get_normal(basis, u, v), Γ, u0, tspan)
 plot_vectors!(ax, grid, vecs, 
-    lengthscale=0.1, arrowscale=0.1, colormap=:magma, normalize=false
+    lengthscale=0.2, arrowscale=0.15, colormap=:magma, normalize=true
 )
 plot_form!(ax, points, ω, us, vs, 
-    inward=true, colormap=:ice,
+    inward=true, colormap=:ice, linewidth=5,
     tspan=20.0, n_seeds=20, closure_tol=5e-3, coverage_tol=0.15, abstol=1e-12, reltol=1e-12
 )
 
