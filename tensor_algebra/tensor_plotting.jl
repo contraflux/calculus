@@ -1,3 +1,4 @@
+using Makie
 using GLMakie
 using DifferentialEquations
 
@@ -77,6 +78,13 @@ function get_klein(θ, φ, r=3)
     return points, basis, (us, vs), Γ, ∂, ∇, R_scalar
 end
 
+function get_normal(basis, u, v)
+    e1 = evaluate(basis[1], Dict(θ=>u, φ=>v)).data
+    e2 = evaluate(basis[2], Dict(θ=>u, φ=>v)).data
+    n = cross(e1, e2)
+    return n / norm(n)
+end
+
 function geodesic!(Γ, du, u, p, t)
     # u = [θ, φ, vθ, vφ]
     # du = derivatives of u
@@ -109,23 +117,112 @@ function plot_line!(ax, points)
     lines!(ax, xs, ys, zs, color=:lightblue, linewidth=2)
 end
 
-function plot_geodesic!(ax, points, Γ, u0, tspan)
+function plot_geodesic!(ax, points, normal, Γ, u0, tspan; offset=0.01)
     problem = ODEProblem((du, u, p, t) -> geodesic!(Γ, du, u, p, t), u0, tspan)
     solution = solve(problem, abstol=1e-10, reltol=1e-10)
-    geodesic_points = [points(u_t[1], u_t[2]) for u_t in solution.u]
+    geodesic_points = [points(u_t[1], u_t[2]) + offset * normal(u_t[1], u_t[2]) for u_t in solution.u]
     plot_line!(ax, geodesic_points)
 end
 
-function plot_vectors!(ax, grid, vecs; lengthscale=1, arrowscale=1, colormap=:viridis, normalize=false)
-    grid = vec([Point3f(x) for x in grid])
-    vecs = vec([Vec3f(v) for v in vecs])
-    lengths = vec([norm(v) for v in vecs])
-    arrows!(ax, grid, vecs, color=lengths, colormap=colormap, arrowsize=arrowscale, lengthscale=lengthscale, normalize=normalize)
+function plot_form!(ax, points, ω, us, vs; tspan=10.0, n_seeds=10, colormap=:viridis, linewidth=1, abstol=1e-10, reltol=1e-10, offset=0.01, closure_tol=0.05, coverage_tol=0.1)
+    
+    curves = []
+    mags = []
+
+    function wrap(u, v)
+        u_out = mod(u - us[begin], us[end] - us[begin]) + us[begin]
+        v_out = mod(v - vs[begin], vs[end] - vs[begin]) + vs[begin]
+        return u_out, v_out
+    end
+
+    function already_covered(u0, v0)
+        p = points(u0, v0)
+        for curve in curves
+            for pt in curve
+                if norm(pt - p) < coverage_tol
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    function integrate_curve(u0, v0, mag)
+        p_start = points(u0, v0)
+        prob = ODEProblem(
+            (du, u, p, t) -> begin
+                wu, wv = wrap(u[1], u[2])
+                ω_n = evaluate(ω, Dict(θ=>wu, φ=>wv))
+                mag_n = norm(ω_n.data)
+                if mag_n < 1e-10
+                    du[1] = 0.0
+                    du[2] = 0.0
+                else
+                    du[1] = -ω_n.data[2] / mag_n^2
+                    du[2] = ω_n.data[1] / mag_n^2
+                end
+            end,
+            [u0, v0], (0.0, tspan)
+        )
+
+        closure_condition(u, t, integrator) = begin
+            wu, wv = wrap(u[1], u[2])
+            p_current = points(wu, wv)
+            t > 0.1 ? norm(p_current - p_start) - closure_tol : closure_tol
+        end
+        closure_affect!(integrator) = terminate!(integrator)
+        cb = ContinuousCallback(closure_condition, closure_affect!)
+
+        sol = solve(prob, abstol=abstol, reltol=reltol, callback=cb)
+        curve = []
+        curve_mags = Float64[]
+        for u_t in sol.u
+            wu, wv = wrap(u_t[1], u_t[2])
+            push!(curve, points(wu, wv) + offset * get_normal(basis, wu, wv))
+            ω_n = evaluate(ω, Dict(θ=>wu, φ=>wv))
+            push!(curve_mags, norm(ω_n.data))
+        end
+        push!(curves, curve)
+        push!(mags, curve_mags)
+    end
+
+    u_start = (us[begin] + us[end]) / 2
+    v_start = (vs[begin] + vs[end]) / 2
+    u_step = (us[end] - us[begin]) / n_seeds
+    v_step = (vs[end] - vs[begin]) / n_seeds
+
+    for sign in [1.0, -1.0]
+        u0, v0 = u_start, v_start
+        for i in 1:n_seeds
+            ω_num = evaluate(ω, Dict(θ=>u0, φ=>v0))
+            mag = norm(ω_num.data)
+            if mag < 1e-10
+                break
+            end
+
+            if !already_covered(u0, v0)
+                integrate_curve(u0, v0, mag)
+            end
+
+            ω1, ω2 = ω_num.data[1], ω_num.data[2]
+            step_size = sqrt(u_step^2 + v_step^2)
+            u0, v0 = wrap(u0 + sign * step_size * ω1 / mag, v0 + sign * step_size * ω2 / mag)
+        end
+    end
+
+    all_mags = vcat(mags...)
+    colorrange = (minimum(all_mags), maximum(all_mags))
+    for (curve, curve_mags) in zip(curves, mags)
+        xs = [p[1] for p in curve]
+        ys = [p[2] for p in curve]
+        zs = [p[3] for p in curve]
+        lines!(ax, xs, ys, zs, color=curve_mags, colormap=colormap, colorrange=colorrange, linewidth=linewidth)
+    end
 end
 
 @variables θ φ
 
-points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_sphere(θ, φ)
+points, basis, (us, vs), Γ, ∂, ∇, R_scalar = get_torus(θ, φ)
 
 # Surface points
 cartesian_points = [points(u, v) for u in us, v in vs]
@@ -146,16 +243,23 @@ vecs = [
     evaluate(X[:i] * basis[:i], Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
+ω = Tensor([sin(θ), cos(φ)]')
 
 set_theme!(theme_dark())
 fig = Figure(size=(700, 500), fxaa=true)
 ax = Axis3(fig[1,1], aspect=:data)
-ax.title = "Divergence Plot"
+ax.title = "Covector Field"
 hidespines!(ax)
 
-s = plot_surface!(ax, cartesian_points, div_X_values)
-Colorbar(fig[1,2], s)
-# plot_geodesic!(ax, points, Γ, u0, tspan)
-plot_vectors!(ax, grid, vecs, lengthscale=0.05, arrowscale=0.015, colormap=:magma, normalize=true)
+s = plot_surface!(ax, cartesian_points)
+# Colorbar(fig[1,2], s)
+# plot_geodesic!(ax, points, (u, v) -> get_normal(basis, u, v), Γ, u0, tspan)
+# plot_vectors!(ax, grid, vecs, 
+#     lengthscale=0.1, arrowscale=0.15, colormap=:magma, normalize=false
+# )
+plot_form!(ax, points, ω, us, vs, 
+    colormap=:magma,
+    tspan=20.0, n_seeds=20, closure_tol=5e-3, coverage_tol=0.15, abstol=1e-12, reltol=1e-12
+)
 
 display(fig)
