@@ -124,7 +124,20 @@ function plot_geodesic!(ax, points, normal, Γ, u0, tspan; offset=0.01)
     plot_line!(ax, geodesic_points)
 end
 
-function plot_form!(ax, points, ω, us, vs; tspan=10.0, n_seeds=10, colormap=:viridis, linewidth=1, abstol=1e-10, reltol=1e-10, offset=0.01, closure_tol=0.05, coverage_tol=0.1)
+function plot_vectors!(ax, grid, vecs; lengthscale=1, arrowscale=0.1, colormap=:viridis, normalize=false)
+    grid = vec([Point3f(x) for x in grid])
+    vecs = vec([Vec3f(v) for v in vecs])
+    lengths = vec([norm(v) for v in vecs])
+    if normalize
+        vecs = [v / norm(v) for v in vecs]
+    end
+    arrows3d!(ax, grid, vecs, color=lengths, colormap=colormap,
+        lengthscale=lengthscale, markerscale=arrowscale,
+        align=:tail
+    )
+end
+
+function plot_form!(ax, points, ω, us, vs; inward=false, tspan=10.0, n_seeds=10, colormap=:viridis, linewidth=1, abstol=1e-10, reltol=1e-10, offset=0.01, closure_tol=0.05, coverage_tol=0.1)
     
     curves = []
     mags = []
@@ -139,7 +152,7 @@ function plot_form!(ax, points, ω, us, vs; tspan=10.0, n_seeds=10, colormap=:vi
         p = points(u0, v0)
         for curve in curves
             for pt in curve
-                if norm(pt - p) < coverage_tol
+                if pt !== nothing && norm(pt - p) < coverage_tol
                     return true
                 end
             end
@@ -148,7 +161,7 @@ function plot_form!(ax, points, ω, us, vs; tspan=10.0, n_seeds=10, colormap=:vi
     end
 
     function integrate_curve(u0, v0, mag)
-        p_start = points(u0, v0)
+        p_start = points(wrap(u0, v0)...)
         prob = ODEProblem(
             (du, u, p, t) -> begin
                 wu, wv = wrap(u[1], u[2])
@@ -173,14 +186,22 @@ function plot_form!(ax, points, ω, us, vs; tspan=10.0, n_seeds=10, colormap=:vi
         closure_affect!(integrator) = terminate!(integrator)
         cb = ContinuousCallback(closure_condition, closure_affect!)
 
-        sol = solve(prob, abstol=abstol, reltol=reltol, callback=cb)
+        sol = solve(prob, abstol=abstol, reltol=reltol, callback=cb, saveat=0.01)
         curve = []
         curve_mags = Float64[]
+        prev_pt = nothing
         for u_t in sol.u
             wu, wv = wrap(u_t[1], u_t[2])
-            push!(curve, points(wu, wv) + offset * get_normal(basis, wu, wv))
+            k = inward ? -1 : 1
+            pt = points(wu, wv) + offset * k * get_normal(basis, wu, wv)
+            if prev_pt !== nothing && norm(pt - prev_pt) > 0.5
+                push!(curve, nothing)
+                push!(curve_mags, NaN)
+            end
+            push!(curve, pt)
             ω_n = evaluate(ω, Dict(θ=>wu, φ=>wv))
             push!(curve_mags, norm(ω_n.data))
+            prev_pt = pt
         end
         push!(curves, curve)
         push!(mags, curve_mags)
@@ -210,13 +231,36 @@ function plot_form!(ax, points, ω, us, vs; tspan=10.0, n_seeds=10, colormap=:vi
         end
     end
 
-    all_mags = vcat(mags...)
+    all_mags = filter(isfinite, vcat(mags...))
     colorrange = (minimum(all_mags), maximum(all_mags))
     for (curve, curve_mags) in zip(curves, mags)
-        xs = [p[1] for p in curve]
-        ys = [p[2] for p in curve]
-        zs = [p[3] for p in curve]
-        lines!(ax, xs, ys, zs, color=curve_mags, colormap=colormap, colorrange=colorrange, linewidth=linewidth)
+        segments = []
+        seg_mags = []
+        current_seg = []
+        current_mags = Float64[]
+        for (pt, m) in zip(curve, curve_mags)
+            if pt === nothing
+                if length(current_seg) > 1
+                    push!(segments, current_seg)
+                    push!(seg_mags, current_mags)
+                end
+                current_seg = []
+                current_mags = Float64[]
+            else
+                push!(current_seg, pt)
+                push!(current_mags, m)
+            end
+        end
+        if length(current_seg) > 1
+            push!(segments, current_seg)
+            push!(seg_mags, current_mags)
+        end
+        for (seg, sm) in zip(segments, seg_mags)
+            xs = [p[1] for p in seg]
+            ys = [p[2] for p in seg]
+            zs = [p[3] for p in seg]
+            lines!(ax, xs, ys, zs, color=sm, colormap=colormap, colorrange=colorrange, linewidth=linewidth)
+        end
     end
 end
 
@@ -236,14 +280,14 @@ tspan = (0.0, 5.0)
 coarse_us = us[begin:2:end]
 coarse_vs = vs[begin:2:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
-X = Tensor([sin(θ), cos(φ)])
+X = Tensor([1, sin(φ)])
 div_X = ∇[:i] * X[:i]
 div_X_values = [evaluate(div_X, Dict(θ=>u, φ=>v)) for u in us, v in vs]
 vecs = [
     evaluate(X[:i] * basis[:i], Dict(θ=>u, φ=>v)).data
     for u in coarse_us, v in coarse_vs
 ]
-ω = Tensor([sin(θ), cos(φ)]')
+ω = Tensor([1, sin(φ)]')
 
 set_theme!(theme_dark())
 fig = Figure(size=(700, 500), fxaa=true)
@@ -254,11 +298,11 @@ hidespines!(ax)
 s = plot_surface!(ax, cartesian_points)
 # Colorbar(fig[1,2], s)
 # plot_geodesic!(ax, points, (u, v) -> get_normal(basis, u, v), Γ, u0, tspan)
-# plot_vectors!(ax, grid, vecs, 
-#     lengthscale=0.1, arrowscale=0.15, colormap=:magma, normalize=false
-# )
+plot_vectors!(ax, grid, vecs, 
+    lengthscale=0.1, arrowscale=0.15, colormap=:magma, normalize=false
+)
 plot_form!(ax, points, ω, us, vs, 
-    colormap=:magma,
+    inward=true, colormap=:magma,
     tspan=20.0, n_seeds=20, closure_tol=5e-3, coverage_tol=0.15, abstol=1e-12, reltol=1e-12
 )
 
