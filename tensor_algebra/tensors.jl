@@ -1286,7 +1286,7 @@ end
 Evaluates symbolic expressions within a Tensor
 """
 function evaluate(A::Tensor, dict)
-    a = [Float64(Symbolics.unwrap(substitute(expr, dict))) for expr in A.data]
+    a = [Float64(Symbolics.symbolic_to_float(substitute(expr, dict; fold=Val(true)))) for expr in A.data]
     return Tensor(reshape(a, size(A.data)), A.variance)
 end
 
@@ -1294,7 +1294,8 @@ end
 Evaluates symbolic expressions within a scalar
 """
 function evaluate(x::Num, dict)
-    return Float64(Symbolics.unwrap(simplify(substitute(x, dict))))
+    result = substitute(x, dict; fold=Val(true))
+    return Float64(Symbolics.symbolic_to_float(result))
 end
 
 """
