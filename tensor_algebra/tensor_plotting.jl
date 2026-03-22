@@ -35,7 +35,7 @@ function get_torus(θ, φ, R=3, r=1)
         Tensor([-(R + r * cos(θ)) * sin(φ), (R + r * cos(θ)) * cos(φ), 0])
     ])
 
-    us = range(0, 2π, 50)
+    us = range(0, 2π, 51)
     vs = range(0, 2π, 50)
 
     Γ = christoffel((θ, φ), basis)
@@ -95,7 +95,7 @@ function geodesic!(Γ, du, u, p, t)
     du[4] = -sum([Γ_num[2][i,j] * u[2+i] * u[2+j] for i in 1:2, j in 1:2])
 end
 
-function plot_surface!(ax, points, values=nothing)
+function plot_surface!(ax, points, values=nothing; colormap=:viridis)
     x = [p[1] for p in points]
     y = [p[2] for p in points]
     z = [p[3] for p in points]
@@ -106,7 +106,7 @@ function plot_surface!(ax, points, values=nothing)
     end
     color_limit = maximum(abs.(values))
     wireframe!(ax, x, y, z, color=:white, linewidth=0.25, alpha=0.5)
-    s = surface!(ax, x, y, z, color=values, colormap=:RdBu, colorrange=(-color_limit, color_limit))
+    s = surface!(ax, x, y, z, color=values, colormap=colormap, colorrange=(-color_limit, color_limit))
     return s
 end
 
@@ -278,7 +278,7 @@ tspan = (0.0, 5.0)
 
 # Vector field
 coarse_us = us[begin:2:end]
-coarse_vs = vs[begin:2:end]
+coarse_vs = vs[begin:1:end]
 grid = [points(u, v) for u in coarse_us, v in coarse_vs]
 X = Tensor([1, sin(φ)])
 div_X = ∇[:i] * X[:i]
@@ -292,17 +292,17 @@ vecs = [
 set_theme!(theme_dark())
 fig = Figure(size=(700, 500), fxaa=true)
 ax = Axis3(fig[1,1], aspect=:data)
-ax.title = "Covector Field"
+ax.title = "Vector and Covector Fields"
 hidespines!(ax)
 
 s = plot_surface!(ax, cartesian_points)
 # Colorbar(fig[1,2], s)
 # plot_geodesic!(ax, points, (u, v) -> get_normal(basis, u, v), Γ, u0, tspan)
 plot_vectors!(ax, grid, vecs, 
-    lengthscale=0.1, arrowscale=0.15, colormap=:magma, normalize=false
+    lengthscale=0.1, arrowscale=0.1, colormap=:magma, normalize=false
 )
 plot_form!(ax, points, ω, us, vs, 
-    inward=true, colormap=:magma,
+    inward=true, colormap=:ice,
     tspan=20.0, n_seeds=20, closure_tol=5e-3, coverage_tol=0.15, abstol=1e-12, reltol=1e-12
 )
 
